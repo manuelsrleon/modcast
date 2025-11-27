@@ -33,8 +33,8 @@ The Modcast SyncAPI provides the developer extensions to their game engine that 
 |David Montes                   |david.j.montes     |deivisi         |
 |Manuel Santamariña Ruiz de León|manuel.santamarina |manuelsrleon    |
 |Roi Millán Míguez              |roi.millan.miguez  |roimm1          |
-|Pablo Masián Carro             |pablo.masian.carro |                |
-|Antón Pernas González          |antonio.pernasg    |                |
+|Pablo Masián Carro             |pablo.masian.carro |pablomasian     |
+|Antón Pernas González          |antonio.pernasg    |antonioPernas   |
 
 ## Supervised by 
 David Cabrero Souto
