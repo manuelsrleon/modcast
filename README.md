@@ -29,7 +29,7 @@ The Modcast SyncAPI provides the developer extensions to their game engine that 
 
 ## Team members
 |                               |UDC login          | GitHub username|
-|-------------------------------|                   |                |
+|-------------------------------|-------------------|----------------|
 |David Montes                   |david.j.montes     |deivisi         |
 |Manuel Santamariña Ruiz de León|manuel.santamarina |manuelsrleon    |
 |Roi Millán Míguez              |roi.millan.miguez  |roimm1          |
