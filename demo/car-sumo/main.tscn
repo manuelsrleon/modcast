@@ -51,7 +51,7 @@ script = ExtResource("1_ig7tw")
 [node name="Car" type="Node3D" parent="Player/Node3D"]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
-transform = Transform3D(1, 0, 0, 0, 0.99999994, 0, 0, 0, 0.99999994, 0, 0.12423301, 0)
+transform = Transform3D(1, 0, 0, 0, 0.99999994, 0, 0, 0, 0.99999994, 0, 0.008526683, 0)
 shape = SubResource("BoxShape3D_1bvp3")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Player"]

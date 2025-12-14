@@ -6,7 +6,7 @@ const ACCELERATION = 8.0
 const DECELERATION = 10.0
 const BRAKE_STRENGTH = 15.0
 const TURN_SPEED = 4.0
-const MIN_TURN_SPEED = 2.0
+const MIN_TURN_SPEED = 1.0
 
 # Current car state
 var current_speed = 0.0
@@ -41,7 +41,7 @@ func _physics_process(delta: float) -> void:
 
 	# Handle steering - only turn when moving
 	if abs(current_speed) > MIN_TURN_SPEED:
-		steering_angle = steer * TURN_SPEED
+		steering_angle = -(steer * TURN_SPEED)
 		rotate_y(steering_angle * delta * (current_speed / MAX_SPEED))
 
 	# Apply movement in the direction the car is facing
