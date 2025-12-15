@@ -1,45 +1,38 @@
-defmodule Modcast.GameState.Entity do
+defmodule Modcast.SyncStatusLedger do
   @moduledoc """
-  Entity structure representing an in-game object tied to a mod.
-  Entities are immutable except for player_id when transferred.
+  Sync Status Ledger - Stores and manages all game entities.
+  Provides synchronization and conflict resolution between peers.
   """
   
-  @enforce_keys [:entity_id, :asset_id, :hash, :player_id]
-  defstruct [
-    :entity_id,
-    :asset_id,
-    :hash,
-    :player_id,
-    :created_at,
-    :last_transferred
-  ]
+  alias Modcast.GameState.Entity
   
-  @type t :: %__MODULE__{
-    entity_id: String.t(),
-    asset_id: String.t(),
-    hash: String.t(),
-    player_id: String.t(),
-    created_at: DateTime.t(),
-    last_transferred: DateTime.t() | nil
-  }
+  defstruct entities: %{}
   
-  def new(entity_id, asset_id, hash, player_id) do
-    %__MODULE__{
-      entity_id: entity_id,
-      asset_id: asset_id,
-      hash: hash,
-      player_id: player_id,
-      created_at: DateTime.utc_now(),
-      last_transferred: nil
-    }
+  @type t :: %__MODULE__{entities: %{String.t() => Entity.t()}}
+  
+  def new, do: %__MODULE__{}
+  
+  def put_entity(ledger, %Entity{} = entity) do
+    %{ledger | entities: Map.put(ledger.entities, entity.entity_id, entity)}
   end
   
-  def transfer(entity, new_player_id) do
-    %{entity | 
-      player_id: new_player_id,
-      last_transferred: DateTime.utc_now()
-    }
+  def get_entity(ledger, entity_id), do: Map.get(ledger.entities, entity_id)
+  
+  def delete_entity(ledger, entity_id), do: %{ledger | entities: Map.delete(ledger.entities, entity_id)}
+  
+  def get_entities_by_player(ledger, player_id) do
+    ledger.entities
+    |> Map.values()
+    |> Enum.filter(&(&1.player_id == player_id))
   end
   
-  def belongs_to?(entity, player_id), do: entity.player_id == player_id
+  def get_entities_by_hash(ledger, hash) do
+    ledger.entities
+    |> Map.values()
+    |> Enum.filter(&(&1.hash == hash))
+  end
+  
+  def list_entities(ledger), do: Map.values(ledger.entities)
+  
+  def merge(local, remote), do: %__MODULE__{entities: Map.merge(local.entities, remote.entities)}
 end
