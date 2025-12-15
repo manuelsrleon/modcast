@@ -1,8 +1,5 @@
 defmodule Modcast.GameState.GameStateComponent do
-  @moduledoc """
-  Game State Component - Core P2P game state manager.
-  Handles session management, network connections, mod synchronization, and entity state.
-  """
+  @moduledoc "Game State Component - Core P2P game state manager."
   
   use GenServer
   require Logger
@@ -10,22 +7,9 @@ defmodule Modcast.GameState.GameStateComponent do
   alias Modcast.GameState.Entity
   alias Modcast.Utils
   
-  defstruct [
-    :session_id,
-    :local_player_id,
-    :players,
-    :peers,
-    :phase,
-    :available_mods,
-    :required_mods,
-    :callback_handler,
-    :mods_folder,
-    :ssl,
-    :mod_metadata,
-    :player_selections,
-    :listener_socket,
-    :connection_supervisor
-  ]
+  defstruct [:session_id, :local_player_id, :players, :peers, :phase, :available_mods, 
+    :required_mods, :callback_handler, :mods_folder, :ssl, :mod_metadata, :player_selections, 
+    :listener_socket, :connection_supervisor]
   
   # Public API
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -51,20 +35,10 @@ defmodule Modcast.GameState.GameStateComponent do
   def init(opts) do
     {:ok, connection_supervisor} = Task.Supervisor.start_link(name: :modcast_connection_supervisor)
     state = %__MODULE__{
-      session_id: nil,
-      local_player_id: nil,
-      players: %{},
-      peers: %{},
-      phase: :idle,
-      available_mods: MapSet.new(),
-      required_mods: MapSet.new(),
-      callback_handler: Keyword.get(opts, :callback_handler),
-      mods_folder: Keyword.get(opts, :mods_folder, "./mods"),
-      ssl: SyncStatusLedger.new(),
-      mod_metadata: %{},
-      player_selections: %{},
-      listener_socket: nil,
-      connection_supervisor: connection_supervisor
+      session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
+      available_mods: MapSet.new(), required_mods: MapSet.new(), callback_handler: Keyword.get(opts, :callback_handler),
+      mods_folder: Keyword.get(opts, :mods_folder, "./mods"), ssl: SyncStatusLedger.new(), mod_metadata: %{},
+      player_selections: %{}, listener_socket: nil, connection_supervisor: connection_supervisor
     }
     Logger.info("[GSC] Initialized")
     {:ok, state}
@@ -76,7 +50,8 @@ defmodule Modcast.GameState.GameStateComponent do
     {available_mods, mod_metadata} = scan_local_mods(state.mods_folder)
     case start_listener(port) do
       {:ok, listener_socket} ->
-        new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading, 
+        accept_next_connection(listener_socket)
+        new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading,
           available_mods: available_mods, mod_metadata: mod_metadata, listener_socket: listener_socket}
         |> register_player(player_id, :connected)
         Logger.info("[GSC] Session started: #{session_id} on port #{port}")
@@ -110,9 +85,8 @@ defmodule Modcast.GameState.GameStateComponent do
   def handle_cast(:leave_session, state) do
     Enum.each(state.peers, fn {_, peer} -> if peer.socket, do: :gen_tcp.close(peer.socket) end)
     if state.listener_socket, do: :gen_tcp.close(state.listener_socket)
-    new_state = %{state | session_id: nil, local_player_id: nil, players: %{}, peers: %{}, 
-      phase: :idle, required_mods: MapSet.new(), ssl: SyncStatusLedger.new(), 
-      player_selections: %{}, listener_socket: nil}
+    new_state = %{state | session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
+      required_mods: MapSet.new(), ssl: SyncStatusLedger.new(), player_selections: %{}, listener_socket: nil}
     Logger.info("[GSC] Session ended")
     {:noreply, new_state}
   end
@@ -124,8 +98,8 @@ defmodule Modcast.GameState.GameStateComponent do
     new_required = MapSet.union(state.required_mods, new_mods)
     missing = MapSet.difference(new_mods, state.available_mods)
     new_state = %{state | required_mods: new_required}
-    broadcast_message(new_state, {:required_mods, state.local_player_id, mod_hashes})
-    new_state = request_missing_mods(new_state, missing)
+    |> then(fn s -> broadcast_message(s, {:required_mods, s.local_player_id, mod_hashes}); s end)
+    |> request_missing_mods(missing)
     Logger.info("[GSC] Mods announced: #{length(mod_hashes)}, missing: #{MapSet.size(missing)}")
     {:reply, {:ok, MapSet.to_list(missing)}, new_state}
   end
@@ -141,6 +115,8 @@ defmodule Modcast.GameState.GameStateComponent do
     {:reply, :ok, new_state}
   end
   
+  @impl true
+  def handle_call({:get_selected_mods, player_id}, _from, state), do: {:reply, MapSet.to_list(Map.get(state.player_selections, player_id, MapSet.new())), state}
   @impl true
   def handle_call({:register_entity, entity_id, asset_id, player_id, hash}, _from, state) do
     if state.phase != :in_game, do: {:reply, {:error, :wrong_phase}, state}
@@ -165,45 +141,86 @@ defmodule Modcast.GameState.GameStateComponent do
         new_state = %{state | ssl: new_ssl}
         broadcast_message(new_state, {:entity_transferred, entity_id, new_player_id})
         invoke_callback(state, :on_entity_transferred, [transferred])
-        Logger.info("[GSC] Entity transferred: #{entity_id}")
+        Logger.info("[GSC] Entity transferred: #{entity_id} -> #{new_player_id}")
         {:reply, {:ok, transferred}, new_state}
     end
   end
   
   @impl true
+  def handle_call({:get_entity, entity_id}, _from, state), do: {:reply, SyncStatusLedger.get_entity(state.ssl, entity_id), state}
+  @impl true
+  def handle_call(:get_all_entities, _from, state), do: {:reply, SyncStatusLedger.list_entities(state.ssl), state}
+  @impl true
   def handle_call(:start_game, _from, state) do
     if state.phase != :loading, do: {:reply, {:error, :wrong_phase}, state}
     missing = MapSet.difference(state.required_mods, state.available_mods)
-    if Enum.empty?(missing) do
+    if MapSet.size(missing) == 0 do
       new_state = %{state | phase: :in_game}
       broadcast_message(new_state, :game_started)
       invoke_callback(state, :on_game_started, [])
       Logger.info("[GSC] Game started")
       {:reply, :ok, new_state}
     else
-      Logger.warning("[GSC] Cannot start game, missing mods: #{MapSet.to_list(missing)}")
+      Logger.warning("[GSC] Cannot start game, missing mods: #{inspect(MapSet.to_list(missing))}")
       {:reply, {:error, {:mods_missing, MapSet.to_list(missing)}}, state}
     end
   end
   
   @impl true
-  def handle_info({:tcp, socket, data}, state), do: handle_network_message(socket, data, state); {:noreply, state}
+  def handle_call(:get_phase, _from, state), do: {:reply, state.phase, state}
   @impl true
-  def handle_info({:tcp_closed, socket}, state), do: handle_disconnection(socket, state); {:noreply, state}
+  def handle_call(:get_players, _from, state), do: {:reply, state.players, state}
+  @impl true
+  def handle_call(:get_stats, _from, state) do
+    stats = %{
+      session_id: state.session_id, local_player_id: state.local_player_id, phase: state.phase,
+      num_players: map_size(state.players), num_peers: map_size(state.peers), num_entities: map_size(state.ssl.entities),
+      available_mods: MapSet.size(state.available_mods), required_mods: MapSet.size(state.required_mods)
+    }
+    {:reply, stats, state}
+  end
+  
+  @impl true
+  def handle_call({:get_mod_info, hash}, _from, state), do: {:reply, Map.get(state.mod_metadata, hash), state}
+  @impl true
+  def handle_call({:is_mod_available, hash}, _from, state), do: {:reply, MapSet.member?(state.available_mods, hash), state}
+  @impl true
+  def handle_call(:list_available_mods, _from, state), do: {:reply, MapSet.to_list(state.available_mods), state}
+  
+  @impl true
+  def handle_info({:tcp, socket, data}, state), do: {:noreply, handle_network_message(socket, data, state)}
+  @impl true
+  def handle_info({:tcp_closed, socket}, state), do: {:noreply, handle_disconnection(socket, state)}
   @impl true
   def handle_info({:tcp_error, socket, reason}, state) do
-    Logger.error("[GSC] TCP error from socket: #{reason}")
-    handle_disconnection(socket, state)
-    {:noreply, state}
+    Logger.error("[GSC] TCP error from socket: #{inspect(reason)}")
+    {:noreply, handle_disconnection(socket, state)}
   end
+  
   @impl true
-  def handle_info({:accept_connection, socket}, state) do
+  def handle_info({:incoming_connection, socket}, state) do
     Task.Supervisor.start_child(state.connection_supervisor, fn -> handle_incoming_connection(socket, state) end)
-    accept_connections(state.listener_socket)
     {:noreply, state}
   end
   
-  # Private helper functions
+  @impl true
+  def handle_cast({:peer_connected, peer_id, player_id, socket}, state) do
+    new_state = add_peer(state, peer_id, player_id, socket)
+    Logger.info("[GSC] Peer connected: #{peer_id} (player: #{player_id})")
+    {:noreply, new_state}
+  end
+  
+  # Private functions
+  defp accept_next_connection(listener_socket) do
+    Task.start(fn ->
+      case :gen_tcp.accept(listener_socket) do
+        {:ok, client_socket} -> send(__MODULE__, {:incoming_connection, client_socket})
+        {:error, reason} -> Logger.error("[GSC] Accept error: #{inspect(reason)}")
+      end
+      accept_next_connection(listener_socket)
+    end)
+  end
+  
   defp scan_local_mods(folder) do
     if File.exists?(folder) do
       folder
@@ -231,7 +248,7 @@ defmodule Modcast.GameState.GameStateComponent do
     Enum.reduce(missing_mods, state, fn hash, acc ->
       if peer = find_peer_with_mod(acc, hash) do
         filename = get_filename_for_hash(acc, hash)
-        send_message(peer.socket, {:request_mod, hash, filename, state.local_player_id})
+        send_message(peer.socket, {:request_mod, hash, filename, acc.local_player_id})
         Logger.info("[GSC] Requesting mod #{hash} from #{peer.player_id}")
       else
         Logger.warning("[GSC] Mod #{hash} required but no peer has it")
@@ -240,29 +257,10 @@ defmodule Modcast.GameState.GameStateComponent do
     end)
   end
   
-  defp get_filename_for_hash(state, hash) do
-    case Map.get(state.mod_metadata, hash) do
-      %{filename: filename} -> filename
-      nil -> "#{hash}.zip"
-    end
-  end
+  defp get_filename_for_hash(state, hash), do: case Map.get(state.mod_metadata, hash) do %{filename: filename} -> filename; nil -> "#{hash}.zip" end
+  defp find_peer_with_mod(state, _hash), do: Enum.at(Map.values(state.peers), 0) || nil
   
-  defp find_peer_with_mod(state, hash) do
-    Enum.find_value(state.peers, fn {_, peer} -> peer end) # Simplified - assumes first peer has it
-  end
-  
-  defp start_listener(port) do
-    :gen_tcp.listen(port, [active: true, packet: :raw, reuseaddr: true, nodelay: true, backlog: 10])
-  end
-  
-  defp accept_connections(socket) do
-    Task.start(fn ->
-      case :gen_tcp.accept(socket) do
-        {:ok, client} -> GenServer.cast(__MODULE__, {:incoming_connection, client})
-        {:error, reason} -> Logger.error("[GSC] Accept error: #{reason}")
-      end
-    end)
-  end
+  defp start_listener(port), do: :gen_tcp.listen(port, [active: true, packet: :raw, reuseaddr: true, nodelay: true, backlog: 10])
   
   defp connect_to_peer(host, port) do
     case :gen_tcp.connect(String.to_charlist(host), port, [active: true, packet: :raw, nodelay: true]) do
@@ -302,14 +300,12 @@ defmodule Modcast.GameState.GameStateComponent do
         else
           state
         end
-      {:required_mods, remote_player_id, mod_hashes} ->
+      {:required_mods, _remote_player_id, mod_hashes} ->
         if state.phase == :loading do
           new_required = MapSet.union(state.required_mods, MapSet.new(mod_hashes))
           new_state = %{state | required_mods: new_required}
           missing = MapSet.difference(MapSet.new(mod_hashes), state.available_mods)
-          Enum.each(missing, fn hash ->
-            send_message(socket, {:request_mod, hash, get_filename_for_hash(state, hash), state.local_player_id})
-          end)
+          Enum.each(missing, fn hash -> send_message(socket, {:request_mod, hash, get_filename_for_hash(state, hash), state.local_player_id}) end)
           new_state
         else
           state
@@ -348,6 +344,7 @@ defmodule Modcast.GameState.GameStateComponent do
         end
       {:entity_created, entity} ->
         new_ssl = SyncStatusLedger.put_entity(state.ssl, entity)
+        invoke_callback(state, :on_entity_created, [entity])
         %{state | ssl: new_ssl}
       {:entity_transferred, entity_id, new_player_id} ->
         case SyncStatusLedger.get_entity(state.ssl, entity_id) do
@@ -355,17 +352,25 @@ defmodule Modcast.GameState.GameStateComponent do
           entity ->
             transferred = Entity.transfer(entity, new_player_id)
             new_ssl = SyncStatusLedger.put_entity(state.ssl, transferred)
+            invoke_callback(state, :on_entity_transferred, [transferred])
             %{state | ssl: new_ssl}
         end
-      {:game_started} -> %{state | phase: :in_game}
-      {:full_sync, remote_ssl} -> %{state | ssl: SyncStatusLedger.merge(state.ssl, remote_ssl)}
-      _ -> Logger.warning("[GSC] Unknown message received"); state
+      {:game_started} ->
+        invoke_callback(state, :on_game_started, [])
+        %{state | phase: :in_game}
+      {:full_sync, remote_ssl} ->
+        %{state | ssl: SyncStatusLedger.merge(state.ssl, remote_ssl)}
+      _ ->
+        Logger.warning("[GSC] Unknown message received")
+        state
     end
   end
   
   defp handle_disconnection(socket, state) do
     case find_peer_by_socket(state, socket) do
-      {peer_id, _} -> remove_peer(state, peer_id)
+      {peer_id, peer} ->
+        Logger.info("[GSC] Peer disconnected: #{peer.player_id}")
+        remove_peer(state, peer_id)
       nil -> state
     end
   end
@@ -391,7 +396,8 @@ defmodule Modcast.GameState.GameStateComponent do
   defp find_peer_id_by_socket(state, socket), do: case find_peer_by_socket(state, socket) do {id, _} -> id; nil -> nil end
   
   defp update_peer_player_id(state, peer_id, player_id) do
-    Map.update!(state.peers, peer_id, fn peer -> %{peer | player_id: player_id} end)
+    new_peers = Map.update!(state.peers, peer_id, fn peer -> %{peer | player_id: player_id} end)
+    %{state | peers: new_peers}
   end
   
   defp register_player(state, player_id, status) do
