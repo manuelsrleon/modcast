@@ -15,6 +15,14 @@ defmodule Modcast.MSAPI do
 
   @impl true
   def init(_opts) do
+    
+    case GameStateComponent.start_link(callback_handler: __MODULE__) do
+      {:ok, _gsc_pid} ->
+        Logger.info("[MSAPI] GameStateComponent started")
+      {:error, {:already_started, _pid}} ->
+        Logger.info("[MSAPI] GameStateComponent already running")
+    end
+    
     # Open Listening socket
     {:ok, listen_socket} = :gen_tcp.listen(@game_port, [:binary, packet: :line, active: true, reuseaddr: true])
     Logger.info("[MSAPI] Listening for Game Engine on port #{@game_port}")
