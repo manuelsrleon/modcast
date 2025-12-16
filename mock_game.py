@@ -37,10 +37,13 @@ def start_mock_client():
     listener.start()
 
     print("Comandos disponibles (escribe el número):")
-    print("1. Iniciar Host (start_host)")
-    print("2. Unirse a Partida (join_game)")
-    print("3. Crear Entidad (spawn_entity)")
-    print("4. JSON Personalizado")
+    print("1. Iniciar Host (start_session)")
+    print("2. Unirse a Partida (join_session)")
+    print("3. Iniciar Juego (start_game)")
+    print("4. Crear Entidad (register_entity)")
+    print("5. Transferir Entidad (transfer_entity)")
+    print("6. Salir de Partida (leave_session)")
+    print("7. JSON Personalizado")
 
     while True:
         print("\n[GODOT] > ", end="")
@@ -63,8 +66,11 @@ def start_mock_client():
                 "player": "jugador_invitado",
                 "host": "127.0.0.1",
             }
-
         elif user_input == "3":
+            command = {
+                "action": "start_game"
+            }
+        elif user_input == "4":
             command = {
                 "action": "register_entity",
                 "entity": "entidad_1",
@@ -72,7 +78,19 @@ def start_mock_client():
                 "player": "jugador_python",
                 "hash": "hash_falso_123",
             }
-        elif user_input == "4":
+        elif user_input == "5":
+            command = {
+                "action": "transfer_entity",
+                "entity": "entidad_1",
+                "new_player": "jugador_invitado",
+            }
+        elif user_input == "6":
+            session = input("Introduce session_id: ")
+            command = {
+                "action": "leave_session",
+                "session": session
+            }
+        elif user_input == "7":
             raw = input("Introduce JSON: ")
             try:
                 command = json.loads(raw)

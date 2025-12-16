@@ -56,6 +56,8 @@ defmodule Modcast.MSAPI do
   def on_entity_transferred(entity), do: send_event("entity_transferred", entity)
   def on_game_started(), do: send_event("game_started", %{})
   def on_mod_ready(hash, mod_data), do: send_event("mod_ready", Map.put(mod_data, :hash, hash))
+  def on_mod_hash_mismatch(expected, actual), do: send_event("mod_hash_mismatch", %{expected: expected, actual: actual})
+  def on_all_mods_ready(), do: send_event("all_mods_ready", %{})
 
   defp send_event(type, data) do
     GenServer.cast(__MODULE__, {:send_to_game, type, data})
@@ -91,8 +93,6 @@ defmodule Modcast.MSAPI do
   defp handle_game_command(%{"action" => "start_session", "session" => s, "player" => p}, state) do
     Logger.info("[MSAPI] Command start_host received")
 
-    GameStateComponent.start_link(callback_handler: __MODULE__)
-
     case GameStateComponent.start_session(s, p) do
       {:ok, _} -> reply_to_game(state, "ok", "Session started")
       {:error, r} -> reply_to_game(state, "error", inspect(r))
@@ -103,7 +103,6 @@ defmodule Modcast.MSAPI do
   #{"action":"join_session", "session": session_id, "player":player_id, "host":host_id}
   defp handle_game_command(%{"action" => "join_session", "session" => s, "player" => p, "host" => h}, state) do
     Logger.info("[MSAPI] Command join_session received")
-    GameStateComponent.start_link(callback_handler: __MODULE__)
 
     case GameStateComponent.join_session(s, p, h, 4040) do
       {:ok, _} -> reply_to_game(state, "ok", "Joining session...")
@@ -111,23 +110,39 @@ defmodule Modcast.MSAPI do
     end
     {:noreply, state}
   end
-  # {"action":"leave_session"}
-  defp handle_game_command(%{"action" => "leave_session"}, state) do # FALLA EN EL GCS. SUPONGO QUE HACE FALTA MANDAR ID DE LA SESSION (y jugador en caso de que se intente desconectar solo a un jugador)
+  
+  # {"action":"leave_session", "session": session_id}
+  defp handle_game_command(%{"action" => "leave_session", "session" => s}, state) do
     Logger.info("[MSAPI] Command leave_session received")
-    GameStateComponent.leave_session()
+    GameStateComponent.leave_session(s)
+    {:noreply, state}
+  end
+  
+  # {"action":"start_game"}
+  defp handle_game_command(%{"action" => "start_game"}, state) do
+    Logger.info("[MSAPI] Command start_game received")
+    case GameStateComponent.start_game() do
+      :ok -> reply_to_game(state, "ok", "Game started")
+      {:error, r} -> reply_to_game(state, "error", inspect(r))
+    end
     {:noreply, state}
   end
 
-
   #{"action":"register_entity", "entity": entity_id, "asset":asset_id, "player":player_id, "hash":hash}
-  defp handle_game_command(%{"action" => "register_entity", "entity" => entity, "asset" => asset, "player" => p, "hash" => h}, state) do #FALLO EN EL GCS
-    GameStateComponent.register_entity(entity, asset, p, h)
+  defp handle_game_command(%{"action" => "register_entity", "entity" => entity, "asset" => asset, "player" => p, "hash" => h}, state) do
+    case GameStateComponent.register_entity(entity, asset, p, h) do
+      {:ok, _} -> reply_to_game(state, "ok", "Entity created")
+      {:error, r} -> reply_to_game(state, "error", inspect(r))
+    end
     {:noreply, state}
   end
 
   #{"action":"transfer_entity", "entity": entity_id, "new_player":player_id}
   defp handle_game_command(%{"action" => "transfer_entity", "entity" => entity, "new_player" => p}, state) do
-    GameStateComponent.transfer_entity(entity, p)
+    case GameStateComponent.transfer_entity(entity, p) do
+      {:ok, _} -> reply_to_game(state, "ok", "Entity transferred")
+      {:error, r} -> reply_to_game(state, "error", inspect(r))
+    end
     {:noreply, state}
   end
 

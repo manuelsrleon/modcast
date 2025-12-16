@@ -88,31 +88,6 @@ defmodule Modcast.GameState.GameStateComponent do
   end
 
   @impl true
-  def handle_cast({:leave_session, session_id}, state) do
-    cond do
-      state.session_id == nil ->
-        Logger.warning("[GSC] No active session to leave")
-        {:noreply, state}
-      state.session_id != session_id ->
-        Logger.warning("[GSC] Attempt to leave wrong session: #{session_id} (current: #{state.session_id})")
-        {:noreply, state}
-      true ->
-        broadcast_message(state, {:player_left, state.local_player_id})
-        Enum.each(state.peers, fn {_, peer} -> if peer.socket, do: :gen_tcp.close(peer.socket) end)
-        should_close_listener = map_size(state.peers) == 0 and state.listener_socket != nil
-        if should_close_listener do
-          :gen_tcp.close(state.listener_socket)
-          Logger.info("[GSC] Listener socket closed")
-        end
-        new_state = %{state | session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
-          required_mods: MapSet.new(), ssl: SyncStatusLedger.new(), player_selections: %{},
-          listener_socket: if(should_close_listener, do: nil, else: state.listener_socket)}
-        Logger.info("[GSC] Session ended: #{session_id}")
-        {:noreply, new_state}
-    end
-  end
-
-  @impl true
   def handle_call({:announce_required_mods, mod_hashes}, _from, state) do
     cond do
       state.phase != :loading -> {:reply, {:error, :wrong_phase}, state}
@@ -151,9 +126,6 @@ defmodule Modcast.GameState.GameStateComponent do
       not MapSet.member?(state.available_mods, hash) ->
         Logger.warning("[GSC] Cannot register entity: mod not available (#{hash})")
         {:reply, {:error, :mod_not_available}, state}
-      SyncStatusLedger.get_entity(state.ssl, entity_id) != nil ->
-        Logger.warning("[GSC] Cannot register entity: entity already exists (#{entity_id})")
-        {:reply, {:error, :entity_already_exists}, state}
       not Map.has_key?(state.players, player_id) ->
         Logger.warning("[GSC] Cannot register entity: player not in session (#{player_id})")
         {:reply, {:error, :player_not_in_session}, state}
@@ -235,6 +207,38 @@ defmodule Modcast.GameState.GameStateComponent do
   def handle_call(:list_available_mods, _from, state), do: {:reply, MapSet.to_list(state.available_mods), state}
 
   @impl true
+  def handle_cast({:leave_session, session_id}, state) do
+    cond do
+      state.session_id == nil ->
+        Logger.warning("[GSC] No active session to leave")
+        {:noreply, state}
+      state.session_id != session_id ->
+        Logger.warning("[GSC] Attempt to leave wrong session: #{session_id} (current: #{state.session_id})")
+        {:noreply, state}
+      true ->
+        broadcast_message(state, {:player_left, state.local_player_id})
+        Enum.each(state.peers, fn {_, peer} -> if peer.socket, do: :gen_tcp.close(peer.socket) end)
+        should_close_listener = map_size(state.peers) == 0 and state.listener_socket != nil
+        if should_close_listener do
+          :gen_tcp.close(state.listener_socket)
+          Logger.info("[GSC] Listener socket closed")
+        end
+        new_state = %{state | session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
+          required_mods: MapSet.new(), ssl: SyncStatusLedger.new(), player_selections: %{},
+          listener_socket: if(should_close_listener, do: nil, else: state.listener_socket)}
+        Logger.info("[GSC] Session ended: #{session_id}")
+        {:noreply, new_state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:peer_connected, peer_id, player_id, socket}, state) do
+    new_state = add_peer(state, peer_id, player_id, socket)
+    Logger.info("[GSC] Peer connected: #{peer_id} (player: #{player_id})")
+    {:noreply, new_state}
+  end
+
+  @impl true
   def handle_info({:tcp, socket, data}, state), do: {:noreply, handle_network_message(socket, data, state)}
   @impl true
   def handle_info({:tcp_closed, socket}, state), do: {:noreply, handle_disconnection(socket, state)}
@@ -246,15 +250,8 @@ defmodule Modcast.GameState.GameStateComponent do
 
   @impl true
   def handle_info({:incoming_connection, socket}, state) do
-    Task.Supervisor.start_child(state.connection_supervisor, fn -> handle_incoming_connection(socket, state.session_id) end)
+    Task.Supervisor.start_child(state.connection_supervisor, fn -> handle_incoming_connection(socket, state) end)
     {:noreply, state}
-  end
-
-  @impl true
-  def handle_cast({:peer_connected, peer_id, player_id, socket}, state) do
-    new_state = add_peer(state, peer_id, player_id, socket)
-    Logger.info("[GSC] Peer connected: #{peer_id} (player: #{player_id})")
-    {:noreply, new_state}
   end
 
   # Private functions
@@ -309,12 +306,14 @@ defmodule Modcast.GameState.GameStateComponent do
       acc
     end)
   end
+  
   defp get_filename_for_hash(state, hash) do
     case Map.get(state.mod_metadata, hash) do
       %{filename: filename} -> filename
       nil -> "#{hash}.zip"
     end
   end
+  
   defp find_peer_with_mod(state, _hash) do
     case Enum.at(Map.values(state.peers), 0) do
       nil -> nil
@@ -331,23 +330,17 @@ defmodule Modcast.GameState.GameStateComponent do
     end
   end
 
-  defp handle_incoming_connection(socket, current_session_id) do
+  defp handle_incoming_connection(socket, state) do
     receive do
       {:tcp, ^socket, data} ->
         case decode_message(data) do
           {:handshake, session_id, player_id} ->
-            if session_id == current_session_id do
+            if session_id == state.session_id do
               peer_id = Utils.generate_peer_id()
               GenServer.cast(__MODULE__, {:peer_connected, peer_id, player_id, socket})
-              send_message(socket, {:handshake_response, GenServer.call(__MODULE__, :get_phase)})
-              case GenServer.call(__MODULE__, :get_all_entities) do
-                entities when is_list(entities) ->
-                  ssl = %Modcast.SyncStatusLedger{entities: Enum.into(entities, %{}, fn e -> {e.entity_id, e} end)}
-                  send_message(socket, {:full_sync, ssl})
-                _ -> send_message(socket, {:full_sync, Modcast.SyncStatusLedger.new()})
-              end
-              mods = GenServer.call(__MODULE__, :list_available_mods)
-              send_message(socket, {:available_mods, player_id, mods})
+              send_message(socket, {:handshake_response, state.local_player_id})
+              send_message(socket, {:full_sync, state.ssl})
+              send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.available_mods)})
             else
               Logger.warning("[GSC] Connection attempt with wrong session_id")
               :gen_tcp.close(socket)
@@ -360,10 +353,11 @@ defmodule Modcast.GameState.GameStateComponent do
 
   defp handle_network_message(socket, data, state) do
     case decode_message(data) do
-      {:handshake_response, _remote_player_id} ->
+      {:handshake_response, remote_player_id} ->
         if peer_id = find_peer_id_by_socket(state, socket) do
-          Logger.info("[GSC] Handshake completed")
-          state
+          new_state = update_peer_player_id(state, peer_id, remote_player_id)
+          Logger.info("[GSC] Handshake completed with player #{remote_player_id}")
+          new_state
         else
           state
         end
@@ -470,6 +464,11 @@ defmodule Modcast.GameState.GameStateComponent do
       {id, _} -> id
       nil -> nil
     end
+  end
+
+  defp update_peer_player_id(state, peer_id, player_id) do
+    new_peers = Map.update!(state.peers, peer_id, fn peer -> %{peer | player_id: player_id} end)
+    %{state | peers: new_peers}
   end
 
   defp register_player(state, player_id, status) do
