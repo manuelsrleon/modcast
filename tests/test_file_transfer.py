@@ -713,97 +713,33 @@ def interactive_mode():
 
 def main():
     """Menú principal"""
-    print("=== TEST SUITE MODCAST - Sistema de Testing ===")
-    print()
-    print("⚠️  IMPORTANTE: Este test asume que hay UNA instancia de Modcast")
-    print("   corriendo en localhost:5050 (iex -S mix)")
-    print("   Para testing P2P real se necesitan múltiples instancias.")
-    print()
+    print("=== TEST SUITE MODCAST ===\n")
+    print("1. Ejecutar todos los tests")
+    print("2. Test 1: Compartición básica")
+    print("3. Test 2: Múltiples mods por jugador")
+    print("4. Test 3: Tres jugadores")
+    print("5. Test 4: Persistencia entre sesiones")
+    print("6. Test 5: Compartición selectiva")
+    print("7. Modo interactivo")
+    print("0. Salir\n")
     
-    while True:
-        print("\nSelecciona opción:")
-        print("  1. Ejecutar TODOS los tests automáticamente")
-        print("  2. Test 1: Compartición básica de mods (2 jugadores)")
-        print("  3. Test 2: Múltiples mods por jugador")
-        print("  4. Test 3: Tres jugadores intercambiando mods")
-        print("  5. Test 4: Persistencia entre sesiones")
-        print("  6. Test 5: Compartición selectiva")
-        print("  7. Modo interactivo (debugging)")
-        print("  8. Limpiar carpeta de mods")
-        print("  0. Salir")
-        
-        choice = input("\nOpción: ").strip()
-        
-        if choice == "1":
-            success = run_all_tests()
-            if success:
-                print("\n🎉 ¡Todos los tests pasaron!")
-            else:
-                print("\n❌ Algunos tests fallaron. Revisa los logs.")
-                
-        elif choice == "2":
-            success = test_basic_mod_sharing()
-            print(f"\nResultado: {'✅ PASÓ' if success else '❌ FALLÓ'}")
-            
-        elif choice == "3":
-            success = test_multiple_mods_per_player()
-            print(f"\nResultado: {'✅ PASÓ' if success else '❌ FALLÓ'}")
-            
-        elif choice == "4":
-            success = test_three_players()
-            print(f"\nResultado: {'✅ PASÓ' if success else '❌ FALLÓ'}")
-            
-        elif choice == "5":
-            success = test_persistence_across_sessions()
-            print(f"\nResultado: {'✅ PASÓ' if success else '❌ FALLÓ'}")
-            
-        elif choice == "6":
-            success = test_selective_sharing()
-            print(f"\nResultado: {'✅ PASÓ' if success else '❌ FALLÓ'}")
-            
-        elif choice == "7":
-            interactive_mode()
-            
-        elif choice == "8":
-            cleanup_mods_folder()
-            print("✅ Carpeta 'mods' limpiada")
-            
-        elif choice == "0":
-            print("👋 Saliendo...")
-            break
-            
-        else:
-            print("❌ Opción no válida. Intenta de nuevo.")
-        
-        if choice != "0":
-            input("\nPresiona Enter para continuar...")
+    choice = input("Selecciona opción: ").strip()
+    
+    if choice == "1":
+        run_all_tests()
+    elif choice == "2":
+        test_basic_mod_sharing()
+    elif choice == "3":
+        test_multiple_mods_per_player()
+    elif choice == "4":
+        test_three_players()
+    elif choice == "5":
+        test_persistence_across_sessions()
+    elif choice == "6":
+        test_selective_sharing()
+    elif choice == "7":
+        interactive_mode()
 
 
 if __name__ == "__main__":
-    # Verificar que Modcast esté corriendo antes de empezar
-    print("\n" + "="*70)
-    print("PREPARACIÓN PARA TESTS MODCAST")
-    print("="*70)
-    print("\nAntes de ejecutar los tests, asegúrate de:")
-    print("  1. Tener Modcast corriendo en otra terminal:")
-    print("     $ cd modcast && iex -S mix")
-    print("  2. Verificar que muestra: '[MSAPI] Listening on port 5050'")
-    print("  3. Este script limpiará la carpeta 'mods' automáticamente")
-    print("\n" + "="*70)
-    
-    try:
-        # Intentar conectar para verificar que Modcast está corriendo
-        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        test_sock.settimeout(2)
-        test_sock.connect(("127.0.0.1", 5050))
-        test_sock.close()
-        print("✅ Conexión a Modcast exitosa")
-    except:
-        print("❌ No se puede conectar a Modcast en 127.0.0.1:5050")
-        print("   Por favor, inicia Modcast primero: iex -S mix")
-        response = input("\n¿Continuar de todos modos? (s/N): ").strip().lower()
-        if response != 's':
-            print("Saliendo...")
-            exit(1)
-    
     main()
