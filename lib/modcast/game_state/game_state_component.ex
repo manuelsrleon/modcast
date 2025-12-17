@@ -1,6 +1,7 @@
 defmodule Modcast.GameState.GameStateComponent do
-  @moduledoc "Game State Component - Core P2P game state manager."
-
+  @moduledoc """
+  Game State Component - Core P2P game state manager.
+  """
   use GenServer
   require Logger
   alias Modcast.SyncStatusLedger
@@ -8,8 +9,9 @@ defmodule Modcast.GameState.GameStateComponent do
   alias Modcast.Utils
   alias Modcast.FileTransferComponent
 
-  defstruct [:session_id, :local_player_id, :players, :peers, :phase, :available_mods,
-    :required_mods, :callback_handler, :mods_folder, :ssl, :mod_metadata, :player_selections,
+  defstruct [:session_id, :local_player_id, :players, :peers, :phase, 
+    :available_mods, :selected_mods, :required_mods,
+    :callback_handler, :mods_folder, :ssl, :mod_metadata, :player_selections,
     :listener_socket, :connection_supervisor]
 
   # Public API
@@ -17,7 +19,6 @@ defmodule Modcast.GameState.GameStateComponent do
   def start_session(session_id, player_id, port \\ 4040), do: GenServer.call(__MODULE__, {:start_session, session_id, player_id, port})
   def join_session(session_id, player_id, host, port \\ 4040), do: GenServer.call(__MODULE__, {:join_session, session_id, player_id, host, port})
   def leave_session(session_id), do: GenServer.cast(__MODULE__, {:leave_session, session_id})
-  def announce_required_mods(mod_hashes), do: GenServer.call(__MODULE__, {:announce_required_mods, mod_hashes})
   def select_mods(player_id, mod_hashes), do: GenServer.call(__MODULE__, {:select_mods, player_id, mod_hashes})
   def get_selected_mods(player_id), do: GenServer.call(__MODULE__, {:get_selected_mods, player_id})
   def register_entity(entity_id, asset_id, player_id, hash), do: GenServer.call(__MODULE__, {:register_entity, entity_id, asset_id, player_id, hash})
@@ -35,13 +36,19 @@ defmodule Modcast.GameState.GameStateComponent do
   @impl true
   def init(opts) do
     {:ok, connection_supervisor} = Task.Supervisor.start_link(name: :modcast_connection_supervisor)
+    mods_folder = Keyword.get(opts, :mods_folder, "./mods")
+    File.mkdir_p!(mods_folder)
+    {available_mods, mod_metadata} = scan_local_mods(mods_folder)
+    
     state = %__MODULE__{
       session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
-      available_mods: MapSet.new(), required_mods: MapSet.new(), callback_handler: Keyword.get(opts, :callback_handler),
-      mods_folder: Keyword.get(opts, :mods_folder, "./mods"), ssl: SyncStatusLedger.new(), mod_metadata: %{},
-      player_selections: %{}, listener_socket: nil, connection_supervisor: connection_supervisor
+      available_mods: available_mods, selected_mods: MapSet.new(), required_mods: MapSet.new(),
+      callback_handler: Keyword.get(opts, :callback_handler), mods_folder: mods_folder,
+      ssl: SyncStatusLedger.new(), mod_metadata: mod_metadata, player_selections: %{},
+      listener_socket: nil, connection_supervisor: connection_supervisor
     }
-    Logger.info("[GSC] Initialized")
+    Logger.info("[GSC] Initialized with mods folder: #{mods_folder}")
+    Logger.info("[GSC] Found #{MapSet.size(available_mods)} mods in local folder")
     {:ok, state}
   end
 
@@ -55,9 +62,11 @@ defmodule Modcast.GameState.GameStateComponent do
           {:ok, listener_socket} ->
             accept_next_connection(listener_socket)
             new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading,
-              available_mods: available_mods, mod_metadata: mod_metadata, listener_socket: listener_socket}
+              available_mods: available_mods, mod_metadata: mod_metadata, listener_socket: listener_socket,
+              selected_mods: MapSet.new(), required_mods: MapSet.new(), player_selections: %{}}
             |> register_player(player_id, :connected)
             Logger.info("[GSC] Session started: #{session_id} on port #{port}")
+            Logger.info("[GSC] #{MapSet.size(available_mods)} mods available. Use select_mods() to choose which to share.")
             {:reply, {:ok, :session_started}, new_state}
           {:error, reason} ->
             Logger.error("[GSC] Failed to start session: #{reason}")
@@ -75,11 +84,13 @@ defmodule Modcast.GameState.GameStateComponent do
         case connect_to_peer(host, port) do
           {:ok, socket, peer_id} ->
             new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading,
-              available_mods: available_mods, mod_metadata: mod_metadata}
+              available_mods: available_mods, mod_metadata: mod_metadata,
+              selected_mods: MapSet.new(), required_mods: MapSet.new(), player_selections: %{}}
             |> register_player(player_id, :connected)
             |> add_peer(peer_id, player_id, socket)
             send_handshake(socket, session_id, player_id)
             Logger.info("[GSC] Joined session: #{session_id} at #{host}:#{port}")
+            Logger.info("[GSC] #{MapSet.size(available_mods)} mods available. Use select_mods() to choose which to share.")
             {:reply, {:ok, :joined_session}, new_state}
           {:error, reason} ->
             Logger.error("[GSC] Failed to join session: #{reason}")
@@ -89,34 +100,45 @@ defmodule Modcast.GameState.GameStateComponent do
   end
 
   @impl true
-  def handle_call({:announce_required_mods, mod_hashes}, _from, state) do
-    cond do
-      state.phase != :loading -> {:reply, {:error, :wrong_phase}, state}
-      true ->
-        new_mods = MapSet.new(mod_hashes)
-        new_required = MapSet.union(state.required_mods, new_mods)
-        missing = MapSet.difference(new_mods, state.available_mods)
-        new_state = %{state | required_mods: new_required}
-        |> then(fn s -> broadcast_message(s, {:required_mods, s.local_player_id, mod_hashes}); s end)
-        |> request_missing_mods(missing)
-        Logger.info("[GSC] Mods announced: #{length(mod_hashes)}, missing: #{MapSet.size(missing)}")
-        {:reply, {:ok, MapSet.to_list(missing)}, new_state}
-    end
-  end
-
-  @impl true
   def handle_call({:select_mods, player_id, mod_hashes}, _from, state) do
-    new_selections = Map.put(state.player_selections, player_id, MapSet.new(mod_hashes))
-    new_state = %{state | player_selections: new_selections}
-    if player_id == state.local_player_id and state.phase == :loading do
-      broadcast_message(new_state, {:selected_mods, player_id, mod_hashes})
+    cond do
+      state.phase == :in_game ->
+        Logger.warning("[GSC] Cannot select mods: game already started")
+        {:reply, {:error, :game_already_started}, state}
+      state.phase != :loading ->
+        Logger.warning("[GSC] Cannot select mods: not in loading phase")
+        {:reply, {:error, :wrong_phase}, state}
+      player_id != state.local_player_id ->
+        Logger.warning("[GSC] Cannot select mods for another player")
+        {:reply, {:error, :not_local_player}, state}
+      true ->
+        requested = MapSet.new(mod_hashes)
+        missing_locally = MapSet.difference(requested, state.available_mods)
+        if MapSet.size(missing_locally) > 0 do
+          Logger.warning("[GSC] Cannot select mods we don't have: #{inspect(MapSet.to_list(missing_locally))}")
+          {:reply, {:error, {:mods_not_available, MapSet.to_list(missing_locally)}}, state}
+        else
+          new_selections = Map.put(state.player_selections, player_id, requested)
+          new_state = %{state | selected_mods: requested, player_selections: new_selections,
+            required_mods: MapSet.union(state.required_mods, requested)}
+          broadcast_message(new_state, {:selected_mods, player_id, mod_hashes})
+          broadcast_message(new_state, {:available_mods, player_id, mod_hashes})
+          Logger.info("[GSC] Player #{player_id} selected #{length(mod_hashes)} mods for this session")
+          missing_from_peers = MapSet.difference(state.required_mods, state.available_mods)
+          if MapSet.size(missing_from_peers) > 0 do
+            new_state = request_missing_mods(new_state, missing_from_peers)
+            {:reply, {:ok, :mods_selected, MapSet.to_list(missing_from_peers)}, new_state}
+          else
+            {:reply, {:ok, :mods_selected, []}, new_state}
+          end
+        end
     end
-    Logger.info("[GSC] Player #{player_id} selected #{length(mod_hashes)} mods")
-    {:reply, :ok, new_state}
   end
 
   @impl true
-  def handle_call({:get_selected_mods, player_id}, _from, state), do: {:reply, MapSet.to_list(Map.get(state.player_selections, player_id, MapSet.new())), state}
+  def handle_call({:get_selected_mods, player_id}, _from, state) do
+    {:reply, MapSet.to_list(Map.get(state.player_selections, player_id, MapSet.new())), state}
+  end
   
   @impl true
   def handle_call({:register_entity, entity_id, asset_id, player_id, hash}, _from, state) do
@@ -124,8 +146,11 @@ defmodule Modcast.GameState.GameStateComponent do
       state.phase != :in_game ->
         Logger.warning("[GSC] Cannot register entity: wrong phase (#{state.phase})")
         {:reply, {:error, :wrong_phase}, state}
+      not MapSet.member?(state.required_mods, hash) ->
+        Logger.warning("[GSC] Cannot register entity: mod not selected by anyone (#{String.slice(hash, 0, 8)}...)")
+        {:reply, {:error, :mod_not_selected}, state}
       not MapSet.member?(state.available_mods, hash) ->
-        Logger.warning("[GSC] Cannot register entity: mod not available (#{String.slice(hash, 0, 8)}...)")
+        Logger.warning("[GSC] Cannot register entity: mod not available locally (#{String.slice(hash, 0, 8)}...)")
         {:reply, {:error, :mod_not_available}, state}
       not Map.has_key?(state.players, player_id) ->
         Logger.warning("[GSC] Cannot register entity: player not in session (#{player_id})")
@@ -170,13 +195,16 @@ defmodule Modcast.GameState.GameStateComponent do
   def handle_call(:start_game, _from, state) do
     cond do
       state.phase != :loading -> {:reply, {:error, :wrong_phase}, state}
+      MapSet.size(state.required_mods) == 0 ->
+        Logger.warning("[GSC] Cannot start game: no mods selected by any player")
+        {:reply, {:error, :no_mods_selected}, state}
       true ->
         missing = MapSet.difference(state.required_mods, state.available_mods)
         if MapSet.size(missing) == 0 do
           new_state = %{state | phase: :in_game}
           broadcast_message(new_state, :game_started)
           invoke_callback(state, :on_game_started, [])
-          Logger.info("[GSC] Game started")
+          Logger.info("[GSC] Game started with #{MapSet.size(state.required_mods)} mods")
           {:reply, :ok, new_state}
         else
           Logger.warning("[GSC] Cannot start game, missing mods: #{inspect(MapSet.to_list(missing))}")
@@ -195,7 +223,8 @@ defmodule Modcast.GameState.GameStateComponent do
     stats = %{
       session_id: state.session_id, local_player_id: state.local_player_id, phase: state.phase,
       num_players: map_size(state.players), num_peers: map_size(state.peers), num_entities: map_size(state.ssl.entities),
-      available_mods: MapSet.size(state.available_mods), required_mods: MapSet.size(state.required_mods)
+      available_mods: MapSet.size(state.available_mods), selected_mods: MapSet.size(state.selected_mods),
+      required_mods: MapSet.size(state.required_mods), mods_folder: state.mods_folder
     }
     {:reply, stats, state}
   end
@@ -219,15 +248,12 @@ defmodule Modcast.GameState.GameStateComponent do
       true ->
         broadcast_message(state, {:player_left, state.local_player_id})
         Enum.each(state.peers, fn {_, peer} -> if peer.socket, do: :gen_tcp.close(peer.socket) end)
-        should_close_listener = map_size(state.peers) == 0 and state.listener_socket != nil
-        if should_close_listener do
-          :gen_tcp.close(state.listener_socket)
-          Logger.info("[GSC] Listener socket closed")
-        end
+        if state.listener_socket, do: :gen_tcp.close(state.listener_socket)
         new_state = %{state | session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
-          required_mods: MapSet.new(), ssl: SyncStatusLedger.new(), player_selections: %{},
-          listener_socket: if(should_close_listener, do: nil, else: state.listener_socket)}
+          selected_mods: MapSet.new(), required_mods: MapSet.new(), ssl: SyncStatusLedger.new(),
+          player_selections: %{}, listener_socket: nil}
         Logger.info("[GSC] Session ended: #{session_id}")
+        Logger.info("[GSC] #{MapSet.size(new_state.available_mods)} mods remain available for next session")
         {:noreply, new_state}
     end
   end
@@ -262,8 +288,7 @@ defmodule Modcast.GameState.GameStateComponent do
         {:ok, client_socket} ->
           send(__MODULE__, {:incoming_connection, client_socket})
           accept_next_connection(listener_socket)
-        {:error, :closed} ->
-          Logger.info("[GSC] Listener socket closed, stopping accept loop")
+        {:error, :closed} -> Logger.info("[GSC] Listener socket closed")
         {:error, reason} ->
           Logger.error("[GSC] Accept error: #{inspect(reason)}")
           Process.sleep(1000)
@@ -274,9 +299,7 @@ defmodule Modcast.GameState.GameStateComponent do
 
   defp scan_local_mods(folder) do
     if File.exists?(folder) do
-      folder
-      |> File.ls!()
-      |> Enum.filter(&String.ends_with?(&1, ".zip"))
+      folder |> File.ls!() |> Enum.filter(&String.ends_with?(&1, ".zip"))
       |> Enum.reduce({MapSet.new(), %{}}, fn filename, {hashes, metadata} ->
         path = Path.join(folder, filename)
         case Utils.compute_file_hash(path) do
@@ -294,8 +317,7 @@ defmodule Modcast.GameState.GameStateComponent do
   end
 
   defp find_peer_with_mod(state, hash) do
-    state.peers
-    |> Map.values()
+    state.peers |> Map.values()
     |> Enum.filter(fn peer -> MapSet.member?(peer.announced_mods || MapSet.new(), hash) end)
     |> case do
       [] -> nil
@@ -315,6 +337,7 @@ defmodule Modcast.GameState.GameStateComponent do
       end
     end)
   end
+
   defp get_filename_for_hash(state, hash) do
     case Map.get(state.mod_metadata, hash) do
       %{filename: filename} -> filename
@@ -341,7 +364,10 @@ defmodule Modcast.GameState.GameStateComponent do
               GenServer.cast(__MODULE__, {:peer_connected, peer_id, player_id, socket})
               send_message(socket, {:handshake_response, state.local_player_id})
               send_message(socket, {:full_sync, state.ssl})
-              send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.available_mods)})
+              if MapSet.size(state.selected_mods) > 0 do
+                send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
+                send_message(socket, {:selected_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
+              end
               Logger.info("[GSC] Accepted connection from #{player_id}")
             else
               Logger.warning("[GSC] Wrong session_id from #{player_id}")
@@ -358,7 +384,10 @@ defmodule Modcast.GameState.GameStateComponent do
       {:handshake_response, remote_player_id} ->
         if peer_id = find_peer_id_by_socket(state, socket) do
           new_state = update_peer_player_id(state, peer_id, remote_player_id)
-          send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.available_mods)})
+          if MapSet.size(state.selected_mods) > 0 do
+            send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
+            send_message(socket, {:selected_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
+          end
           Logger.info("[GSC] Handshake completed with #{remote_player_id}")
           new_state
         else
@@ -369,27 +398,40 @@ defmodule Modcast.GameState.GameStateComponent do
           {peer_id, peer} ->
             updated_peer = %{peer | announced_mods: MapSet.new(mod_list)}
             new_peers = Map.put(state.peers, peer_id, updated_peer)
-            Logger.info("[GSC] Peer #{player_id} announced #{MapSet.size(updated_peer.announced_mods)} mods")
+            Logger.info("[GSC] Peer #{player_id} announced #{length(mod_list)} available mods")
             %{state | peers: new_peers}
           nil -> state
         end
-      {:required_mods, _remote_player_id, mod_hashes} ->
+      {:selected_mods, player_id, mod_hashes} ->
         if state.phase == :loading do
-          new_required = MapSet.union(state.required_mods, MapSet.new(mod_hashes))
-          new_state = %{state | required_mods: new_required}
-          missing = MapSet.difference(MapSet.new(mod_hashes), state.available_mods)
-          Enum.each(missing, fn hash -> send_message(socket, {:request_mod, hash, get_filename_for_hash(state, hash), state.local_player_id}) end)
-          new_state
+          new_mods = MapSet.new(mod_hashes)
+          new_required = MapSet.union(state.required_mods, new_mods)
+          new_selections = Map.put(state.player_selections, player_id, new_mods)
+          new_state = %{state | required_mods: new_required, player_selections: new_selections}
+          missing = MapSet.difference(new_mods, state.available_mods)
+          if MapSet.size(missing) > 0 do
+            Logger.info("[GSC] Peer #{player_id} selected #{length(mod_hashes)} mods, we need #{MapSet.size(missing)}")
+            request_missing_mods(new_state, missing)
+          else
+            Logger.info("[GSC] Peer #{player_id} selected #{length(mod_hashes)} mods (we have all)")
+            new_state
+          end
         else
+          Logger.warning("[GSC] Ignoring mod selection outside loading phase")
           state
         end
       {:request_mod, hash, filename, requesting_player} ->
         FileTransferComponent.handle_mod_request(hash, filename, requesting_player, socket, state)
         state
-      {:mod_file, hash, filename, file_data} ->
-        case FileTransferComponent.handle_mod_received(hash, filename, file_data, state) do
-          {:ok, new_state} -> new_state
-          {:error, _, new_state} -> new_state
+      {:mod_file, session_id, hash, filename, file_data} ->
+        if session_id != state.session_id do
+          Logger.warning("[GSC] Rejected mod from wrong session")
+          state
+        else
+          case FileTransferComponent.handle_mod_received(hash, filename, file_data, session_id, state) do
+            {:ok, new_state} -> new_state
+            {:error, _, new_state} -> new_state
+          end
         end
       {:entity_created, entity} ->
         new_ssl = SyncStatusLedger.put_entity(state.ssl, entity)

@@ -1,11 +1,14 @@
+# ============================================================================
+# ARCHIVO 1: lib/modcast/file_transfer_component.ex
+# ============================================================================
 defmodule Modcast.FileTransferComponent do
-  @moduledoc "Handles complete file transfers for small mod files"
+  @moduledoc "Handles complete file transfers for small mod files with session validation"
   require Logger
   alias Modcast.Utils
 
   @max_file_size 10 * 1024 * 1024
 
-  def send_file(socket, file_path, file_hash) do
+  def send_file(socket, file_path, file_hash, session_id) do
     case File.read(file_path) do
       {:ok, file_data} ->
         file_size = byte_size(file_data)
@@ -20,9 +23,10 @@ defmodule Modcast.FileTransferComponent do
             Logger.error("[FTC] Local hash mismatch for #{Path.basename(file_path)}")
             {:error, :local_hash_mismatch}
           else
-            message = {:mod_file, file_hash, Path.basename(file_path), file_data}
+            # Include session_id in the message for validation
+            message = {:mod_file, session_id, file_hash, Path.basename(file_path), file_data}
             :gen_tcp.send(socket, encode_message(message))
-            Logger.info("[FTC] Sent #{Path.basename(file_path)} (#{file_size} bytes)")
+            Logger.info("[FTC] Sent #{Path.basename(file_path)} (#{file_size} bytes) for session #{session_id}")
             {:ok, file_size}
           end
         end
@@ -33,11 +37,11 @@ defmodule Modcast.FileTransferComponent do
     end
   end
 
-  def receive_file(mods_folder, file_hash, filename, file_data) do
+  def receive_file(mods_folder, file_hash, filename, file_data, session_id) do
     computed_hash = Utils.compute_data_hash(file_data)
     
     if computed_hash != file_hash do
-      Logger.error("[FTC] Hash mismatch: expected #{String.slice(file_hash, 0, 8)}..., got #{String.slice(computed_hash, 0, 8)}...")
+      Logger.error("[FTC] Hash mismatch for session #{session_id}: expected #{String.slice(file_hash, 0, 8)}..., got #{String.slice(computed_hash, 0, 8)}...")
       {:error, :hash_mismatch}
     else
       case Utils.find_file_by_hash(mods_folder, file_hash) do
@@ -56,7 +60,7 @@ defmodule Modcast.FileTransferComponent do
                 File.rm!(file_path)
                 {:error, :write_integrity_failed}
               else
-                Logger.info("[FTC] Saved #{unique_name} (#{byte_size(file_data)} bytes)")
+                Logger.info("[FTC] Saved #{unique_name} (#{byte_size(file_data)} bytes) for session #{session_id}")
                 {:ok, file_path, :downloaded}
               end
             
@@ -69,60 +73,49 @@ defmodule Modcast.FileTransferComponent do
   end
 
   def handle_mod_request(file_hash, filename, requestor_id, socket, state) do
-    case Map.get(state.mod_metadata, file_hash) do
-      %{file_path: path} ->
-        if File.exists?(path) do
-          Task.start(fn ->
-            case send_file(socket, path, file_hash) do
-              {:ok, size} -> 
-                Logger.info("[FTC] Sent #{filename} to #{requestor_id} (#{size} bytes)")
-              {:error, reason} -> 
-                Logger.error("[FTC] Failed to send #{filename} to #{requestor_id}: #{inspect(reason)}")
-            end
-          end)
-          :ok
-        else
-          Logger.warning("[FTC] File not found for hash #{String.slice(file_hash, 0, 8)}...")
+    # Validate that we're in an active session
+    if state.session_id == nil do
+      Logger.warning("[FTC] Cannot send mod: no active session")
+      :error
+    else
+      case Map.get(state.mod_metadata, file_hash) do
+        %{file_path: path} ->
+          if File.exists?(path) do
+            Task.start(fn ->
+              case send_file(socket, path, file_hash, state.session_id) do
+                {:ok, size} -> 
+                  Logger.info("[FTC] Sent #{filename} to #{requestor_id} (#{size} bytes, session: #{state.session_id})")
+                {:error, reason} -> 
+                  Logger.error("[FTC] Failed to send #{filename} to #{requestor_id}: #{inspect(reason)}")
+              end
+            end)
+            :ok
+          else
+            Logger.warning("[FTC] File not found for hash #{String.slice(file_hash, 0, 8)}...")
+            :error
+          end
+          
+        _ ->
+          Logger.warning("[FTC] Requested mod not available: #{String.slice(file_hash, 0, 8)}...")
           :error
-        end
-        
-      _ ->
-        Logger.warning("[FTC] Requested mod not available: #{String.slice(file_hash, 0, 8)}...")
-        :error
+      end
     end
   end
 
-  def handle_mod_received(file_hash, filename, file_data, state) do
-    case receive_file(state.mods_folder, file_hash, filename, file_data) do
-      {:ok, file_path, :downloaded} ->
-        mod_data = %{
-          filename: Path.basename(file_path),
-          display_name: Utils.get_mod_display_name(filename),
-          file_path: file_path,
-          ready_at: DateTime.utc_now()
-        }
-        
-        new_available = MapSet.put(state.available_mods, file_hash)
-        new_metadata = Map.put(state.mod_metadata, file_hash, mod_data)
-        new_state = %{state | available_mods: new_available, mod_metadata: new_metadata}
-        
-        if state.callback_handler do
-          apply(state.callback_handler, :on_mod_ready, [file_hash, mod_data])
-          if MapSet.subset?(state.required_mods, new_available) do
-            apply(state.callback_handler, :on_all_mods_ready, [])
-          end
-        end
-        
-        Logger.info("[FTC] Processed #{filename} successfully")
-        {:ok, new_state}
-      
-      {:ok, _, :already_exists} ->
-        if not MapSet.member?(state.available_mods, file_hash) do
-          mod_data = Map.get(state.mod_metadata, file_hash) || %{
-            filename: filename,
+  def handle_mod_received(file_hash, filename, file_data, session_id, state) do
+    # Validate session_id
+    if state.session_id != session_id do
+      Logger.error("[FTC] Session mismatch: received mod for session #{session_id}, but current session is #{state.session_id}")
+      {:error, :session_mismatch, state}
+    else
+      case receive_file(state.mods_folder, file_hash, filename, file_data, session_id) do
+        {:ok, file_path, :downloaded} ->
+          mod_data = %{
+            filename: Path.basename(file_path),
             display_name: Utils.get_mod_display_name(filename),
-            file_path: Utils.find_file_by_hash(state.mods_folder, file_hash),
-            ready_at: DateTime.utc_now()
+            file_path: file_path,
+            ready_at: DateTime.utc_now(),
+            session_id: session_id
           }
           
           new_available = MapSet.put(state.available_mods, file_hash)
@@ -131,23 +124,48 @@ defmodule Modcast.FileTransferComponent do
           
           if state.callback_handler do
             apply(state.callback_handler, :on_mod_ready, [file_hash, mod_data])
+            if MapSet.subset?(state.required_mods, new_available) do
+              apply(state.callback_handler, :on_all_mods_ready, [])
+            end
           end
           
+          Logger.info("[FTC] Processed #{filename} successfully for session #{session_id}")
           {:ok, new_state}
-        else
-          {:ok, state}
-        end
-      
-      {:error, :hash_mismatch} ->
-        if state.callback_handler do
-          apply(state.callback_handler, :on_mod_hash_mismatch, 
-                [file_hash, Utils.compute_data_hash(file_data)])
-        end
-        {:error, :hash_mismatch, state}
-      
-      {:error, reason} ->
-        Logger.error("[FTC] Failed to process mod: #{inspect(reason)}")
-        {:error, reason, state}
+        
+        {:ok, _, :already_exists} ->
+          if not MapSet.member?(state.available_mods, file_hash) do
+            mod_data = Map.get(state.mod_metadata, file_hash) || %{
+              filename: filename,
+              display_name: Utils.get_mod_display_name(filename),
+              file_path: Utils.find_file_by_hash(state.mods_folder, file_hash),
+              ready_at: DateTime.utc_now(),
+              session_id: session_id
+            }
+            
+            new_available = MapSet.put(state.available_mods, file_hash)
+            new_metadata = Map.put(state.mod_metadata, file_hash, mod_data)
+            new_state = %{state | available_mods: new_available, mod_metadata: new_metadata}
+            
+            if state.callback_handler do
+              apply(state.callback_handler, :on_mod_ready, [file_hash, mod_data])
+            end
+            
+            {:ok, new_state}
+          else
+            {:ok, state}
+          end
+        
+        {:error, :hash_mismatch} ->
+          if state.callback_handler do
+            apply(state.callback_handler, :on_mod_hash_mismatch, 
+                  [file_hash, Utils.compute_data_hash(file_data)])
+          end
+          {:error, :hash_mismatch, state}
+        
+        {:error, reason} ->
+          Logger.error("[FTC] Failed to process mod: #{inspect(reason)}")
+          {:error, reason, state}
+      end
     end
   end
 

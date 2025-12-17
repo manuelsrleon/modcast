@@ -1,14 +1,16 @@
-TUTORIAL PARA EJECUTAR LOS TESTS:
+No se prueban realmente las transferencias reales de archivos con los tests que hay ya que estan los dos clientes 
+compartiendo la misma carpeta de mods. Habría que hacer algo como esto para poder generar diferentes instancias
+y carpetas
 
-*Arrancar el GSC
+# 1. Múltiples instancias de Modcast
+cd modcast
+MODCAST_P2P_PORT=4040 iex -S mix  # Terminal 1: Player1
+MODCAST_P2P_PORT=4041 iex -S mix  # Terminal 2: Player2
 
-iex -S mix --> MSAPI ya arranca el GSC
+# 2. Múltiples carpetas de mods
+mkdir -p mods_player1 mods_player2
+# Copiar mods diferentes a cada carpeta
 
-*Lanzar los clientes:
-
-Varios a la vez
-python test_mocks/start_test.py 
-
-Uno a uno
-python test_mocks/mock_client.py --name Player1
-python test_mocks/mock_client.py --name Player2
+# 3. Conectar mocks a diferentes puertos
+python test.py --name Player1 --port 5050
+python test.py --name Player2 --port 5051
