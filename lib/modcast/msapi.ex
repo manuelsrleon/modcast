@@ -7,28 +7,30 @@ defmodule Modcast.MSAPI do
   require Logger
   alias Modcast.GameState.GameStateComponent
 
-  @game_port 5050
+
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl true
-  def init(_opts) do
-    case GameStateComponent.start_link(callback_handler: __MODULE__) do
+  def init(opts) do
+    api_port = Keyword.get(opts, :api_port, 5050)
+    p2p_port = Keyword.get(opts, :p2p_port, 4040)
+    case GameStateComponent.start_link(callback_handler: __MODULE__, p2p_port: p2p_port) do
       {:ok, _gsc_pid} ->
         Logger.info("[MSAPI] GameStateComponent started")
       {:error, {:already_started, _pid}} ->
         Logger.info("[MSAPI] GameStateComponent already running")
     end
 
-    {:ok, listen_socket} = :gen_tcp.listen(@game_port, [:binary, packet: :line, active: true, reuseaddr: true])
-    Logger.info("[MSAPI] Listening for Game Engine on port #{@game_port}")
+    {:ok, listen_socket} = :gen_tcp.listen(api_port, [:binary, packet: :line, active: true, reuseaddr: true])
+    Logger.info("[MSAPI] Listening for Game Engine on port #{api_port}")
 
     parent_pid = self()
     Task.start_link(fn -> accept_loop(listen_socket, parent_pid) end)
 
-    {:ok, %{socket: nil, listen_socket: listen_socket}}
+    {:ok, %{socket: nil, listen_socket: listen_socket, p2p_port: p2p_port}}
   end
 
   defp accept_loop(listen_socket, parent_pid) do
@@ -77,7 +79,7 @@ defmodule Modcast.MSAPI do
   end
 
   # --- GAME COMMANDS ---
-  
+
   # {"action":"start_session", "session": session_id, "player":player_id}
   defp handle_game_command(%{"action" => "start_session", "session" => s, "player" => p}, state) do
     Logger.info("[MSAPI] Command start_session received")
@@ -91,7 +93,7 @@ defmodule Modcast.MSAPI do
   # {"action":"join_session", "session": session_id, "player":player_id, "host":host_ip}
   defp handle_game_command(%{"action" => "join_session", "session" => s, "player" => p, "host" => h}, state) do
     Logger.info("[MSAPI] Command join_session received")
-    case GameStateComponent.join_session(s, p, h, 4040) do
+    case GameStateComponent.join_session(s, p, h, state.p2p_port) do
       {:ok, _} -> reply_to_game(state, "ok", "Joined session")
       {:error, r} -> reply_to_game(state, "error", inspect(r))
     end
@@ -110,9 +112,9 @@ defmodule Modcast.MSAPI do
   defp handle_game_command(%{"action" => "select_mods", "player" => p, "hashes" => h}, state) do
     Logger.info("[MSAPI] Command select_mods received")
     case GameStateComponent.select_mods(p, h) do
-      {:ok, :mods_selected, missing} -> 
+      {:ok, :mods_selected, missing} ->
         reply_to_game(state, "ok", "Mods selected. Missing: #{inspect(missing)}")
-      {:error, r} -> 
+      {:error, r} ->
         reply_to_game(state, "error", inspect(r))
     end
     {:noreply, state}
