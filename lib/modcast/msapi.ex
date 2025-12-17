@@ -15,14 +15,14 @@ defmodule Modcast.MSAPI do
 
   @impl true
   def init(_opts) do
-    
+
     case GameStateComponent.start_link(callback_handler: __MODULE__) do
       {:ok, _gsc_pid} ->
         Logger.info("[MSAPI] GameStateComponent started")
       {:error, {:already_started, _pid}} ->
         Logger.info("[MSAPI] GameStateComponent already running")
     end
-    
+
     # Open Listening socket
     {:ok, listen_socket} = :gen_tcp.listen(@game_port, [:binary, packet: :line, active: true, reuseaddr: true])
     Logger.info("[MSAPI] Listening for Game Engine on port #{@game_port}")
@@ -110,14 +110,14 @@ defmodule Modcast.MSAPI do
     end
     {:noreply, state}
   end
-  
+
   # {"action":"leave_session", "session": session_id}
   defp handle_game_command(%{"action" => "leave_session", "session" => s}, state) do
     Logger.info("[MSAPI] Command leave_session received")
     GameStateComponent.leave_session(s)
     {:noreply, state}
   end
-  
+
   # {"action":"start_game"}
   defp handle_game_command(%{"action" => "start_game"}, state) do
     Logger.info("[MSAPI] Command start_game received")
@@ -125,6 +125,31 @@ defmodule Modcast.MSAPI do
       :ok -> reply_to_game(state, "ok", "Game started")
       {:error, r} -> reply_to_game(state, "error", inspect(r))
     end
+    {:noreply, state}
+  end
+
+  #{"action":"select_mods", "hashes":mod_hashes}
+  defp handle_game_command(%{"action" => "select_mods", "player"=> p, "hashes" => h}, state) do
+    case GameStateComponent.select_mods(p,h) do
+      {:ok, missing} -> reply_to_game(state, "ok", "Missing:" <> inspect (missing))
+      {:error, r} -> reply_to_game(state, "error", inspect(r))
+    end
+    {:noreply, state}
+  end
+
+  #{"action":"announce_required_mods", "hashes":mod_hashes}
+  defp handle_game_command(%{"action" => "announce_required_mods", "hashes" => h}, state) do
+    case GameStateComponent.announce_required_mods(h) do
+      {:ok, missing} -> reply_to_game(state, "ok", "Missing:" <> inspect (missing))
+      {:error, r} -> reply_to_game(state, "error", inspect(r))
+    end
+    {:noreply, state}
+  end
+
+  #{"action":"get_selected_mods", "player":player_id}
+  defp handle_game_command(%{"action" => "get_selected_mods", "player"=> p }, state) do
+    mods = GameStateComponent.get_selected_mods(p)
+    reply_to_game(state, "ok", mods)
     {:noreply, state}
   end
 
@@ -143,6 +168,62 @@ defmodule Modcast.MSAPI do
       {:ok, _} -> reply_to_game(state, "ok", "Entity transferred")
       {:error, r} -> reply_to_game(state, "error", inspect(r))
     end
+    {:noreply, state}
+  end
+
+  #{"action":"get_entity", "entity": entity_id}
+  defp handle_game_command(%{"action" => "get_entity", "entity"=>id }, state) do
+    e = GameStateComponent.get_entity(id)
+    reply_to_game(state,"ok", e)
+    {:noreply, state}
+  end
+
+  #{"action":"get_all_entities"}
+  defp handle_game_command(%{"action" => "get_all_entities" }, state) do
+    e = GameStateComponent.get_all_entities()
+    reply_to_game(state,"ok", e)
+    {:noreply, state}
+  end
+
+  #{"action":"get_phase"}
+  defp handle_game_command(%{"action" => "get_phase" }, state) do
+    p = GameStateComponent.get_phase()
+    reply_to_game(state,"ok", p)
+    {:noreply, state}
+  end
+
+  #{"action":"get_players"}
+  defp handle_game_command(%{"action" => "get_players" }, state) do
+    p = GameStateComponent.get_players()
+    reply_to_game(state,"ok", p)
+    {:noreply, state}
+  end
+
+  #{"action":"get_stats"}
+  defp handle_game_command(%{"action" => "get_stats"}, state) do
+    s = GameStateComponent.get_stats()
+    reply_to_game(state, "ok", s)
+    {:noreply, state}
+  end
+
+  #{"action":"get_mod_info", "hash": hash}
+  defp handle_game_command(%{"action" => "get_mod_info", "hash" => hash}, state) do
+    i = GameStateComponent.get_mod_info(hash)
+    reply_to_game(state, "ok", i)
+    {:noreply, state}
+  end
+
+  #{"action":"is_mod_available", "hash": hash}
+  defp handle_game_command(%{"action" => "is_mod_available", "hash" => hash}, state) do
+    i = GameStateComponent.is_mod_available?(hash)
+    reply_to_game(state, "ok", i)
+    {:noreply, state}
+  end
+
+  #{"action":"list_available_mods"}
+  defp handle_game_command(%{"action" => "list_available_mods"}, state) do
+    l = GameStateComponent.list_available_mods()
+    reply_to_game(state, "ok", l)
     {:noreply, state}
   end
 
