@@ -6,6 +6,7 @@ defmodule Modcast.GameState.GameStateComponent do
   alias Modcast.SyncStatusLedger
   alias Modcast.GameState.Entity
   alias Modcast.Utils
+  alias Modcast.FileTransferComponent
 
   defstruct [:session_id, :local_player_id, :players, :peers, :phase, :available_mods,
     :required_mods, :callback_handler, :mods_folder, :ssl, :mod_metadata, :player_selections,
@@ -124,7 +125,7 @@ defmodule Modcast.GameState.GameStateComponent do
         Logger.warning("[GSC] Cannot register entity: wrong phase (#{state.phase})")
         {:reply, {:error, :wrong_phase}, state}
       not MapSet.member?(state.available_mods, hash) ->
-        Logger.warning("[GSC] Cannot register entity: mod not available (#{hash})")
+        Logger.warning("[GSC] Cannot register entity: mod not available (#{String.slice(hash, 0, 8)}...)")
         {:reply, {:error, :mod_not_available}, state}
       not Map.has_key?(state.players, player_id) ->
         Logger.warning("[GSC] Cannot register entity: player not in session (#{player_id})")
@@ -292,32 +293,32 @@ defmodule Modcast.GameState.GameStateComponent do
     end
   end
 
-  defp all_mods_ready?(state), do: MapSet.subset?(state.required_mods, state.available_mods)
+  defp find_peer_with_mod(state, hash) do
+    state.peers
+    |> Map.values()
+    |> Enum.filter(fn peer -> MapSet.member?(peer.announced_mods || MapSet.new(), hash) end)
+    |> case do
+      [] -> nil
+      peers -> Enum.random(peers)
+    end
+  end
 
   defp request_missing_mods(state, missing_mods) do
     Enum.reduce(missing_mods, state, fn hash, acc ->
-      if peer = find_peer_with_mod(acc, hash) do
-        filename = get_filename_for_hash(acc, hash)
-        send_message(peer.socket, {:request_mod, hash, filename, acc.local_player_id})
-        Logger.info("[GSC] Requesting mod #{hash} from #{peer.player_id}")
-      else
-        Logger.warning("[GSC] Mod #{hash} required but no peer has it")
+      case find_peer_with_mod(acc, hash) do
+        nil -> Logger.warning("[GSC] Mod #{String.slice(hash, 0, 8)}... required but no peer has it"); acc
+        peer ->
+          filename = get_filename_for_hash(acc, hash)
+          send_message(peer.socket, {:request_mod, hash, filename, acc.local_player_id})
+          Logger.info("[GSC] Requesting mod #{String.slice(hash, 0, 8)}... from #{peer.player_id}")
+          acc
       end
-      acc
     end)
   end
-  
   defp get_filename_for_hash(state, hash) do
     case Map.get(state.mod_metadata, hash) do
       %{filename: filename} -> filename
       nil -> "#{hash}.zip"
-    end
-  end
-  
-  defp find_peer_with_mod(state, _hash) do
-    case Enum.at(Map.values(state.peers), 0) do
-      nil -> nil
-      peer -> peer
     end
   end
 
@@ -341,8 +342,9 @@ defmodule Modcast.GameState.GameStateComponent do
               send_message(socket, {:handshake_response, state.local_player_id})
               send_message(socket, {:full_sync, state.ssl})
               send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.available_mods)})
+              Logger.info("[GSC] Accepted connection from #{player_id}")
             else
-              Logger.warning("[GSC] Connection attempt with wrong session_id")
+              Logger.warning("[GSC] Wrong session_id from #{player_id}")
               :gen_tcp.close(socket)
             end
           _ -> Logger.warning("[GSC] Invalid handshake"); :gen_tcp.close(socket)
@@ -356,10 +358,20 @@ defmodule Modcast.GameState.GameStateComponent do
       {:handshake_response, remote_player_id} ->
         if peer_id = find_peer_id_by_socket(state, socket) do
           new_state = update_peer_player_id(state, peer_id, remote_player_id)
-          Logger.info("[GSC] Handshake completed with player #{remote_player_id}")
+          send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.available_mods)})
+          Logger.info("[GSC] Handshake completed with #{remote_player_id}")
           new_state
         else
           state
+        end
+      {:available_mods, player_id, mod_list} ->
+        case find_peer_by_socket(state, socket) do
+          {peer_id, peer} ->
+            updated_peer = %{peer | announced_mods: MapSet.new(mod_list)}
+            new_peers = Map.put(state.peers, peer_id, updated_peer)
+            Logger.info("[GSC] Peer #{player_id} announced #{MapSet.size(updated_peer.announced_mods)} mods")
+            %{state | peers: new_peers}
+          nil -> state
         end
       {:required_mods, _remote_player_id, mod_hashes} ->
         if state.phase == :loading do
@@ -372,36 +384,12 @@ defmodule Modcast.GameState.GameStateComponent do
           state
         end
       {:request_mod, hash, filename, requesting_player} ->
-        case Map.get(state.mod_metadata, hash) do
-          %{file_path: path} ->
-            if File.exists?(path) do
-              send_message(socket, {:mod_file, hash, filename, File.read!(path)})
-              Logger.info("[GSC] Sending mod #{filename} to #{requesting_player}")
-            else
-              Logger.warning("[GSC] File not found for hash #{hash}")
-            end
-          nil -> Logger.warning("[GSC] Requested mod not available: #{hash}")
-        end
+        FileTransferComponent.handle_mod_request(hash, filename, requesting_player, socket, state)
         state
       {:mod_file, hash, filename, file_data} ->
-        actual_hash = Utils.compute_data_hash(file_data)
-        if actual_hash != hash do
-          Logger.error("[GSC] Hash mismatch receiving mod #{filename}")
-          invoke_callback(state, :on_mod_hash_mismatch, [hash, actual_hash])
-          state
-        else
-          saved_path = save_mod_with_unique_name(state.mods_folder, filename, file_data, hash)
-          mod_data = %{filename: Path.basename(saved_path), display_name: Utils.get_mod_display_name(filename),
-            file_path: saved_path, ready_at: DateTime.utc_now()}
-          new_available = MapSet.put(state.available_mods, hash)
-          new_metadata = Map.put(state.mod_metadata, hash, mod_data)
-          new_state = %{state | available_mods: new_available, mod_metadata: new_metadata}
-          invoke_callback(state, :on_mod_ready, [hash, mod_data])
-          if state.phase == :loading and all_mods_ready?(new_state) do
-            invoke_callback(state, :on_all_mods_ready, [])
-          end
-          Logger.info("[GSC] Mod downloaded: #{Path.basename(saved_path)}")
-          new_state
+        case FileTransferComponent.handle_mod_received(hash, filename, file_data, state) do
+          {:ok, new_state} -> new_state
+          {:error, _, new_state} -> new_state
         end
       {:entity_created, entity} ->
         new_ssl = SyncStatusLedger.put_entity(state.ssl, entity)
@@ -438,17 +426,6 @@ defmodule Modcast.GameState.GameStateComponent do
         new_state = remove_peer(state, peer_id)
         %{new_state | players: new_players}
       nil -> state
-    end
-  end
-
-  defp save_mod_with_unique_name(folder, original_name, data, expected_hash) do
-    if existing = Utils.find_file_by_hash(folder, expected_hash) do
-      existing
-    else
-      unique_name = Utils.unique_filename(folder, original_name)
-      path = Path.join(folder, unique_name)
-      File.write!(path, data)
-      path
     end
   end
 
