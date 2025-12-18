@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://bd30ye4so2j1y"
+path="res://.godot/imported/debris-door-window.obj-40132c78b05641f1f86c25f23f4214bd.mesh"
+
+[deps]
+
+files=["res://.godot/imported/debris-door-window.obj-40132c78b05641f1f86c25f23f4214bd.mesh"]
+
+source_file="res://cars/Models/OBJ format/debris-door-window.obj"
+dest_files=["res://.godot/imported/debris-door-window.obj-40132c78b05641f1f86c25f23f4214bd.mesh", "res://.godot/imported/debris-door-window.obj-40132c78b05641f1f86c25f23f4214bd.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

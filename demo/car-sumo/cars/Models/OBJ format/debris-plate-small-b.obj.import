@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://dc55uv276wwpy"
+path="res://.godot/imported/debris-plate-small-b.obj-05e37668d7a9f153677dfb6a41aa0fbb.mesh"
+
+[deps]
+
+files=["res://.godot/imported/debris-plate-small-b.obj-05e37668d7a9f153677dfb6a41aa0fbb.mesh"]
+
+source_file="res://cars/Models/OBJ format/debris-plate-small-b.obj"
+dest_files=["res://.godot/imported/debris-plate-small-b.obj-05e37668d7a9f153677dfb6a41aa0fbb.mesh", "res://.godot/imported/debris-plate-small-b.obj-05e37668d7a9f153677dfb6a41aa0fbb.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

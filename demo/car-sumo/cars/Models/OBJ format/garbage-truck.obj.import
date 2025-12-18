@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://b87b6xua8yf41"
+path="res://.godot/imported/garbage-truck.obj-32c5a0ff6dae0e3ea4be50fd02e0c8d7.mesh"
+
+[deps]
+
+files=["res://.godot/imported/garbage-truck.obj-32c5a0ff6dae0e3ea4be50fd02e0c8d7.mesh"]
+
+source_file="res://cars/Models/OBJ format/garbage-truck.obj"
+dest_files=["res://.godot/imported/garbage-truck.obj-32c5a0ff6dae0e3ea4be50fd02e0c8d7.mesh", "res://.godot/imported/garbage-truck.obj-32c5a0ff6dae0e3ea4be50fd02e0c8d7.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

@@ -15,6 +15,11 @@ run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.5", "Mobile")
 config/icon="res://icon.svg"
 
+[autoload]
+
+SaveManager="*res://scripts/save_manager.gd"
+CarManager="*res://scripts/car_manager.gd"
+
 [input]
 
 turn_left={
@@ -59,11 +64,6 @@ pause={
 , Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":6,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
-
-[autoload]
-
-SaveManager="*res://scripts/save_manager.gd"
-CarManager="*res://scripts/car_manager.gd"
 
 [rendering]
 
