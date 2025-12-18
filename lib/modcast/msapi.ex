@@ -7,20 +7,26 @@ defmodule Modcast.MSAPI do
   require Logger
   alias Modcast.GameState.GameStateComponent
 
-
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl true
   def init(opts) do
-    # Modcast.MSAPI.start_link(api_port: num, p2p_port: num)
+    # Modcast.MSAPI.start_link(api_port: num, p2p_port: num, mods_folder: path)
     api_port = Keyword.get(opts, :api_port, 5050)
     p2p_port = Keyword.get(opts, :p2p_port, 4040)
-    case GameStateComponent.start_link(callback_handler: __MODULE__, p2p_port: p2p_port) do
+    mods_folder = Keyword.get(opts, :mods_folder, "./mods")
+    
+    File.mkdir_p!(mods_folder)
+    
+    case GameStateComponent.start_link(
+      callback_handler: __MODULE__, 
+      p2p_port: p2p_port,
+      mods_folder: mods_folder
+    ) do
       {:ok, _gsc_pid} ->
-        Logger.info("[MSAPI] GameStateComponent started")
+        Logger.info("[MSAPI] GameStateComponent started with mods folder: #{mods_folder}")
       {:error, {:already_started, _pid}} ->
         Logger.info("[MSAPI] GameStateComponent already running")
     end
@@ -116,6 +122,8 @@ defmodule Modcast.MSAPI do
     case GameStateComponent.select_mods(p, h) do
       {:ok, :mods_selected, missing} ->
         reply_to_game(state, "ok", "Mods selected. Missing: #{inspect(missing)}")
+      {:ok, :mods_preselected} ->
+        reply_to_game(state, "ok", "Mods pre-selected")
       {:error, r} ->
         reply_to_game(state, "error", inspect(r))
     end
@@ -210,6 +218,18 @@ defmodule Modcast.MSAPI do
   defp handle_game_command(%{"action" => "list_available_mods"}, state) do
     l = GameStateComponent.list_available_mods()
     reply_to_game(state, "ok", l)
+    {:noreply, state}
+  end
+
+  defp handle_game_command(%{"action" => "rescan_mods"}, state) do
+    Logger.info("[MSAPI] Command rescan_mods received")
+    case GameStateComponent.rescan_mods() do
+      {:ok, mods} -> 
+        # Enviar como lista simple de strings
+        reply_to_game(state, "ok", Jason.encode!(mods))
+      {:error, r} -> 
+        reply_to_game(state, "error", inspect(r))
+    end
     {:noreply, state}
   end
 
