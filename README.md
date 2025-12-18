@@ -15,7 +15,7 @@ After studying the architectural alternatives
 ### Modcast Mod File (MMF.zip)
 TBD
 ### Mod Definition Schema (MDS.xml)
-TBD
+XML format that describes mod contents. See `examples/player_car_mod/mds.xml` for reference implementation.
 ### Sync Status Ledger (SSL)
 TBD
 ### Modcast Custom Content Storage (CCS)
