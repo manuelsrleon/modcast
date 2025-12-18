@@ -1,6 +1,3 @@
-# ============================================================================
-# ARCHIVO 1: lib/modcast/file_transfer_component.ex
-# ============================================================================
 defmodule Modcast.FileTransferComponent do
   @moduledoc "Handles complete file transfers for small mod files with session validation"
   require Logger
@@ -73,7 +70,6 @@ defmodule Modcast.FileTransferComponent do
   end
 
   def handle_mod_request(file_hash, filename, requestor_id, socket, state) do
-    # Validate that we're in an active session
     if state.session_id == nil do
       Logger.warning("[FTC] Cannot send mod: no active session")
       :error
@@ -103,7 +99,6 @@ defmodule Modcast.FileTransferComponent do
   end
 
   def handle_mod_received(file_hash, filename, file_data, session_id, state) do
-    # Validate session_id
     if state.session_id != session_id do
       Logger.error("[FTC] Session mismatch: received mod for session #{session_id}, but current session is #{state.session_id}")
       {:error, :session_mismatch, state}
