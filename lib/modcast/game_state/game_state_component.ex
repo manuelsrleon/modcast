@@ -301,7 +301,7 @@ defmodule Modcast.GameState.GameStateComponent do
           :inet.setopts(client_socket, [
             :binary,
             active: false,           # Pasivo para handshake controlado
-            packet: :raw,
+            packet: 4,
             nodelay: true,
             send_timeout: 10000,     # ← Timeout de envío
             send_timeout_close: true
@@ -378,9 +378,9 @@ defmodule Modcast.GameState.GameStateComponent do
     end
   end
 
-  defp start_listener(port), do: :gen_tcp.listen(port, [:binary, active: true, packet: :raw, reuseaddr: true, nodelay: true, backlog: 10])
+  defp start_listener(port), do: :gen_tcp.listen(port, [:binary, active: true, packet: 4, reuseaddr: true, nodelay: true, backlog: 10])
   defp connect_to_peer(host, port) do
-    case :gen_tcp.connect(String.to_charlist(host), port, [:binary, active: true, packet: :raw, nodelay: true]) do
+    case :gen_tcp.connect(String.to_charlist(host), port, [:binary, active: true, packet: 4, nodelay: true]) do
       {:ok, socket} -> {:ok, socket, Utils.generate_peer_id()}
       {:error, reason} -> {:error, reason}
     end
