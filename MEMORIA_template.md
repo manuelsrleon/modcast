@@ -1,35 +1,3 @@
-# Práctica grupal
-
-El desarrollo de esta práctica incluye la propuesta, diseño, documentación,
-implementación, testing y presentación de un sistema propuesto por el grupo
-de trabajo.
-
-La propuesta se debe realizar teniendo en cuenta los siguientes
-aspectos:
-
-  - Debe incluir la descripción tanto de los requisitos funcionales,
-    como no funcionales.
-
-  - Debe ser validada por el profesor de la asignatura.
-
-  - La funcionalidad del sistema no es el objetivo de la práctica.
-
-  - El diseño de la aplicación debe seguir alguna de las
-    arquitecturas estudiadas durante el cuatrimestre, una combinación
-    de las mismas, o alguna otra arquitectura propuesta por el
-    grupo. Dicho diseño tiene que ser una solución efectiva para el
-    problema planteado.
-	
-  - Los requisitos no funcionales más habituales están relacionados
-    con el rendimiento, disponibilidad y seguridad, aunque no son los
-    únicos. En cualquier caso, dichos requisitos deben materializarse
-    en la aplicación de las tácticas estudiadas durante el cuatrimestre.
-
-
-
-
-# Datos a cubrir en este README
-
 ## Nombre del equipo
 
 Modcast Team
@@ -85,7 +53,7 @@ Se sigue [The Elixir Style Guide](https://github.com/christopheradams/elixir_sty
    - Consultar entidades por jugador/mod/asset
 
 4. **Interfaz con Motor de Juego (MSAPI)**
-   - Comunicación TCP/JSON en puerto 5050
+   - Comunicación TCP/JSON
    - Comandos: start_session, join_session, select_mods, register_entity, start_game
    - Eventos asíncronos: mod_ready, game_started, entity_created
 
@@ -136,50 +104,16 @@ Se sigue [The Elixir Style Guide](https://github.com/christopheradams/elixir_sty
 
 ### Estructura del proyecto
 
-Basada en la estructura estándar de Mix:
 
-```
-modcast/
-├── lib/
-│   └── modcast/
-│       ├── msapi.ex                    # Interfaz con motor de juego
-│       ├── game_state/
-│       │   ├── game_state_component.ex # Orquestador P2P
-│       │   └── entity.ex               # Entidades del juego
-│       ├── file_transfer_component.ex  # Transferencia de archivos
-│       ├── sync_status_ledger.ex       # Registro distribuido
-│       ├── persistence.ex              # Capa de persistencia
-│       └── utils.ex                    # Utilidades
-├── test/
-│   ├── sync_status_ledger_test.exs
-│   └── test_helper.exs
-├── demo/
-│   └── car-sumo/                       # Juego demo en Godot
-├── tests/                              # Tests de integración Python
-├── mix.exs                             # Configuración del proyecto
-├── README.md
-└── documentatio.md                     # Documentación técnica
-```
 
 ### Mensajes de commit
 
-Formato: `<type>: <description>`
+Formato: 
 
 **Tipos:**
-- `feat`: Nueva funcionalidad
-- `fix`: Corrección de bug
-- `docs`: Cambios en documentación
-- `test`: Añadir o modificar tests
-- `refactor`: Refactorización sin cambio de funcionalidad
-- `style`: Cambios de formato (whitespace, etc.)
 
 **Ejemplo:**
-```
-feat: Add conflict resolution to Sync Status Ledger
-fix: Resolve hash mismatch in file transfer
-docs: Update API reference for MSAPI commands
-test: Add integration tests for mod synchronization
-```
+
 
 ### Estrategia de ramas
 
@@ -393,62 +327,13 @@ iex -S mix
 
 ### Tests
 
-#### Tipos de tests implementados
+Documentación de los tests implementados:
 
-**1. Tests Unitarios (ExUnit)**
-- `test/sync_status_ledger_test.exs`: 21 tests del SSL
-  - CRUD de entidades
-  - Queries (por player, hash, asset)
-  - Merge y resolución de conflictos
-  - Serialización JSON
-  - Validación
-  - Transferencia de propiedad
-
-**2. Tests de Integración (Python)**
-- `tests/test_file_transfer.py`: Tests P2P completos
-  - Test 1: Compartir 1 mod entre 2 jugadores
-  - Test 2: Múltiples mods entre 2 jugadores
-  - Test 3: Red mesh de 3 jugadores
-  - Test 4: Persistencia de mods entre sesiones
-  - Test 5: Selección selectiva de mods
-
-**3. Tests Manuales**
-- `tests/mock_game.py`: Cliente simulado para pruebas manuales
-- `demo/car-sumo`: Demo funcional con Godot
-
-#### Escenarios cubiertos
-
-✅ Creación y gestión de sesiones P2P  
-✅ Selección y anuncio de mods  
-✅ Transferencia de archivos entre peers  
-✅ Verificación de integridad (MD5)  
-✅ Resolución de conflictos en SSL  
-✅ Persistencia de mods descargados  
-✅ Registro y transferencia de entidades  
-✅ Serialización/deserialización JSON  
-✅ Detección de mods duplicados  
-✅ Validación de datos  
-
-#### Escenarios NO cubiertos
-
-❌ Tests de red real con múltiples máquinas (todos en localhost)  
-❌ Tests de rendimiento bajo carga  
-❌ Tests de seguridad (penetration testing)  
-❌ NAT traversal (STUN/TURN)  
-❌ Archivos > 10MB (chunked transfer no implementado)  
-❌ Reconexión automática tras desconexión  
-❌ Tests de compatibilidad con diferentes versiones  
-❌ Tests de stress con cientos de entidades  
-❌ Tests de corrupción de archivos durante transferencia  
-
-#### Cobertura
-
-- **Sync Status Ledger**: ~95% (21/21 tests passing)
-- **File Transfer**: ~70% (tests básicos de transferencia)
-- **MSAPI**: ~60% (comandos principales)
-- **GSC**: ~50% (lógica P2P básica)
-
-**Pendiente:** Tests automatizados de GSC completo y FTC con errores de red simulados.
+  - Tipos de tests.
+  
+  - Escenarios cubiertos por las pruebas.
+  
+  - Escenarios no cubiertos por las pruebas.
 
 
 # Presentación
