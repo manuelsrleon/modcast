@@ -1,0 +1,16 @@
+@startUML ModeloC4
+!include <C4/C4_Context>
+
+title Diagrama de Contexto - Modcast
+
+Person(desarrollador, "Desarrollador", "Quiere integrar sincronización de mods en su videojuego")
+
+
+System(videojuego, "Videojuego", "Integra Modcast como dependencia")
+Rel(desarrollador,videojuego, "Programa")
+    
+System(system,"Modcast", "Inicializa la partida y mantiene la sincronización de archivos entre todos los clientes")
+
+Rel(videojuego, system, "Envía", "datos de inicialización")
+Rel( system, videojuego, "Devuelve", "servicio")
+@enduml

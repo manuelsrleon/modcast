@@ -9,7 +9,7 @@ signal host_migrated(new_host_id: int)
 signal connection_succeeded()
 signal player_list_updated()
 
-# WebRTC peer
+# Network peer (using WebRTC for P2P multiplayer)
 var webrtc_peer: WebRTCMultiplayerPeer = null
 
 # Connected players data
@@ -21,9 +21,9 @@ var is_multiplayer_active: bool = false
 var current_host_id: int = 1
 var local_player_name: String = "Player"
 
-# Signaling server (optional - for WebRTC connection establishment)
-var signaling_server_url: String = "ws://localhost:8080"
-var use_signaling_server: bool = false
+# Network settings
+const DEFAULT_PORT: int = 7654
+const MAX_CLIENTS: int = 8
 
 func _ready() -> void:
 	# Connect to multiplayer signals
