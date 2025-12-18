@@ -8,7 +8,11 @@ var player: CharacterBody3D
 
 func _ready() -> void:
 	player = get_tree().get_first_node_in_group("player")
-	car_name_label.text = "Car: " + SaveManager.get_saved_car().capitalize().replace("_", " ")
+	var saved_car = SaveManager.get_saved_car()
+	if saved_car != "":
+		car_name_label.text = "Car: " + saved_car.capitalize().replace("_", " ")
+	else:
+		car_name_label.text = "Car: Race"
 	
 	# Hide instructions after 5 seconds
 	await get_tree().create_timer(5.0).timeout
