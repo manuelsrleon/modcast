@@ -1,0 +1,22 @@
+{
+  "car_name": "Veilside RX7",
+  "manufacturer": "Mazda",
+  "year": 1997,
+  "performance": {
+    "max_speed": 280,
+    "acceleration": 8.5,
+    "handling": 9.2,
+    "braking": 8.0
+  },
+  "engine": {
+    "type": "rotary",
+    "displacement": "13B-REW",
+    "power_hp": 450,
+    "torque_nm": 520
+  },
+  "physics": {
+    "mass_kg": 1280,
+    "drag_coefficient": 0.32,
+    "downforce": 150
+  }
+}

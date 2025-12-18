@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ModDefinition version="1.0">
+  <metadata>
+    <name>Veilside RX7 Fortune</name>
+    <author>pablo.masian</author>
+    <version>1.0.0</version>
+    <created>2025-12-17T15:30:00Z</created>
+    <description>Tokyo Drift inspired Mazda RX7 with Veilside Fortune body kit. Features custom body textures, racing wheels, and rotary engine sound.</description>
+    <game_asset_type>player_car</game_asset_type>
+    <asset_id>player_car_01</asset_id>
+  </metadata>
+  
+  <resources>
+    <!-- Textures -->
+    <texture id="body" slot="car_body" path="textures/rx7_veilside_body.png" />
+    <texture id="wheels" slot="car_wheels" path="textures/rays_te37_wheels.png" />
+    <texture id="interior" slot="car_interior" path="textures/racing_interior.png" />
+    <texture id="livery" slot="car_livery" path="textures/custom_livery.png" />
+    
+    <!-- 3D Models -->
+    <model path="models/rx7_veilside.obj" format="obj" />
+    
+    <!-- Sounds -->
+    <sound path="sounds/rotary_engine_idle.ogg" type="sfx" />
+    <sound path="sounds/rotary_engine_rev.ogg" type="sfx" />
+    
+    <!-- Configuration Data -->
+    <data path="config/car_stats.json" format="json" />
+  </resources>
+  
+  <compatibility>
+    <game_version min="1.0.0" />
+    <modcast_version min="0.1.0" />
+  </compatibility>
+</ModDefinition>
