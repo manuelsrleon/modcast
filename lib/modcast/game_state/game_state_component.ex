@@ -9,7 +9,7 @@ defmodule Modcast.GameState.GameStateComponent do
   alias Modcast.Utils
   alias Modcast.FileTransferComponent
 
-  defstruct [:session_id, :local_player_id, :players, :peers, :phase,
+  defstruct [:session_id, :local_player_id, :players, :peers, :phase, :is_host, :p2p_host,
     :available_mods, :selected_mods, :required_mods,
     :callback_handler, :mods_folder, :ssl, :mod_metadata, :player_selections,
     :listener_socket, :connection_supervisor]
@@ -39,13 +39,14 @@ defmodule Modcast.GameState.GameStateComponent do
     mods_folder = Keyword.get(opts, :mods_folder, "./mods")
     File.mkdir_p!(mods_folder)
     {available_mods, mod_metadata} = scan_local_mods(mods_folder)
+    p2p_port = Keyword.get(opts, :p2p_port, 4040)
 
     state = %__MODULE__{
       session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
       available_mods: available_mods, selected_mods: MapSet.new(), required_mods: MapSet.new(),
       callback_handler: Keyword.get(opts, :callback_handler), mods_folder: mods_folder,
       ssl: SyncStatusLedger.new(), mod_metadata: mod_metadata, player_selections: %{},
-      listener_socket: nil, connection_supervisor: connection_supervisor
+      listener_socket: nil, connection_supervisor: connection_supervisor, is_host: false, p2p_host: p2p_port
     }
     Logger.info("[GSC] Initialized with mods folder: #{mods_folder}")
     Logger.info("[GSC] Found #{MapSet.size(available_mods)} mods in local folder")
@@ -63,7 +64,7 @@ defmodule Modcast.GameState.GameStateComponent do
             accept_next_connection(listener_socket)
             new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading,
               available_mods: available_mods, mod_metadata: mod_metadata, listener_socket: listener_socket,
-              selected_mods: MapSet.new(), required_mods: MapSet.new(), player_selections: %{}}
+              selected_mods: MapSet.new(), required_mods: MapSet.new(), player_selections: %{}, p2p_host: port, is_host: true}
             |> register_player(player_id, :connected)
             Logger.info("[GSC] Session started: #{session_id} on port #{port}")
             Logger.info("[GSC] #{MapSet.size(available_mods)} mods available. Use select_mods() to choose which to share.")
@@ -295,33 +296,26 @@ defmodule Modcast.GameState.GameStateComponent do
   # Private functions
   defp accept_next_connection(listener_socket) do
     Task.start(fn ->
-      case :gen_tcp.accept(listener_socket, 30000) do  # ← Timeout de 30s en accept
+      case :gen_tcp.accept(listener_socket, 30000) do  
         {:ok, client_socket} ->
-          # Configurar socket con opciones adecuadas
           :inet.setopts(client_socket, [
             :binary,
-            active: false,           # Pasivo para handshake controlado
+            active: false,           
             packet: 4,
             nodelay: true,
-            send_timeout: 10000,     # ← Timeout de envío
+            send_timeout: 10000,    
             send_timeout_close: true
           ])
-
-          # Pasar al supervisor de tareas para manejo robusto
           {:ok, pid} = Task.Supervisor.start_child(:modcast_connection_supervisor, fn ->
             handle_incoming_connection_safe(client_socket, __MODULE__)
           end)
-          # Transferir el Socket al hijo
           :ok = :gen_tcp.controlling_process(client_socket, pid)
           accept_next_connection(listener_socket)
-
         {:error, :closed} ->
           Logger.info("[GSC] Listener socket closed")
-
         {:error, :timeout} ->
           Logger.debug("[GSC] Accept timeout, retrying...")
           accept_next_connection(listener_socket)
-
         {:error, reason} ->
           Logger.error("[GSC] Accept error: #{inspect(reason)}")
           Process.sleep(1000)
@@ -388,51 +382,45 @@ defmodule Modcast.GameState.GameStateComponent do
 
   defp handle_incoming_connection_safe(socket, server_module) do
     try do
-      # Leer handshake en modo bloqueante
       case :gen_tcp.recv(socket, 0, 10000) do
         {:ok, data} ->
-          # Obtener estado actual
           state = :sys.get_state(server_module)
-
           case decode_message(data) do
             {:handshake, session_id, player_id} ->
               if session_id == state.session_id do
                 peer_id = Utils.generate_peer_id()
-
                 server_pid = Process.whereis(server_module)
-
-                # Transferimos la propiedad del socket al GenServer
                 :gen_tcp.controlling_process(socket, server_pid)
-                # Cambiar a modo activo AHORA
                 :inet.setopts(socket, [active: true])
-
-                # Notificar al GenServer
                 GenServer.cast(server_module, {:peer_connected, peer_id, player_id, socket})
-
-                # Enviar respuestas
-                send_message(socket, {:handshake_response, state.local_player_id})
+                if state.is_host do 
+                  peer_list = Enum.map(state.peers, fn {_, peer} ->
+                    %{player_id: peer.player_id, port: state.p2p_port}
+                  end)
+                  send_message(socket, {:handshake_response_with_peers, 
+                    state.local_player_id, peer_list})
+                  broadcast_to_others(state, socket, {:new_peer_joined, 
+                    player_id, state.p2p_port})
+                else
+                  send_message(socket, {:handshake_response, state.local_player_id})
+                end
                 send_message(socket, {:full_sync, state.ssl})
-
                 if MapSet.size(state.selected_mods) > 0 do
                   send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
                   send_message(socket, {:selected_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
                 end
-
                 Logger.info("[GSC] Successfully accepted connection from #{player_id}")
               else
                 Logger.warning("[GSC] Session mismatch: expected #{state.session_id}, got #{session_id}")
                 :gen_tcp.close(socket)
               end
-
             invalid ->
               Logger.warning("[GSC] Invalid handshake message: #{inspect(invalid)}")
               :gen_tcp.close(socket)
           end
-
         {:error, :timeout} ->
           Logger.warning("[GSC] Handshake recv timeout")
           :gen_tcp.close(socket)
-
         {:error, reason} ->
           Logger.warning("[GSC] Handshake recv error: #{inspect(reason)}")
           :gen_tcp.close(socket)
@@ -448,6 +436,28 @@ defmodule Modcast.GameState.GameStateComponent do
 
   defp handle_network_message(socket, data, state) do
     case decode_message(data) do
+      {:handshake_response_with_peers, remote_player_id, peer_list} ->
+        Logger.info("[GSC] Received #{length(peer_list)} peers to connect")
+        if peer_id = find_peer_id_by_socket(state, socket) do
+          new_state = update_peer_player_id(state, peer_id, remote_player_id)
+          final_state = Enum.reduce(peer_list, new_state, fn peer_info, acc ->
+            connect_to_peer_from_list(acc, peer_info)
+          end)
+          final_state
+        else
+          state
+        end
+      {:new_peer_joined, new_player_id, new_port} ->
+        Logger.info("[GSC] New peer joined: #{new_player_id}")        
+        case connect_to_peer("127.0.0.1", new_port) do
+          {:ok, new_socket, new_peer_id} ->
+            new_state = add_peer(state, new_peer_id, new_player_id, new_socket)
+            send_handshake(new_socket, state.session_id, state.local_player_id)
+            new_state
+          {:error, _reason} ->
+            state
+        end
+
       {:handshake_response, remote_player_id} ->
         if peer_id = find_peer_id_by_socket(state, socket) do
           new_state = update_peer_player_id(state, peer_id, remote_player_id)
@@ -574,5 +584,29 @@ defmodule Modcast.GameState.GameStateComponent do
     end
   rescue
     e -> Logger.error("[GSC] Callback error (#{callback}): #{inspect(e)}")
+  end
+
+  defp connect_to_peer_from_list(state, peer_info) do
+    %{player_id: player_id, port: port} = peer_info
+    if player_id == state.local_player_id do
+      state
+    else
+      case connect_to_peer("127.0.0.1", port) do
+        {:ok, socket, peer_id} ->
+          new_state = add_peer(state, peer_id, player_id, socket)
+          send_handshake(socket, state.session_id, state.local_player_id)
+          Logger.info("[GSC] Connected to peer #{player_id}")
+          new_state
+        {:error, _} -> state
+      end
+    end
+  end
+
+  defp broadcast_to_others(state, except_socket, message) do
+    Enum.each(state.peers, fn {_, peer} ->
+      if peer.socket != except_socket do
+        send_message(peer.socket, message)
+      end
+    end)
   end
 end
