@@ -59,15 +59,14 @@ func apply_state(state: Dictionary) -> void:
 
 # Physics process - interpolate to synced state
 func _physics_process(delta: float) -> void:
-	# Only interpolate if we don't have authority (remote player)
-	if multiplayer.get_unique_id() != peer_id:
-		# Interpolate position and rotation
-		position = position.lerp(synced_position, INTERPOLATION_SPEED)
-		rotation = rotation.lerp(synced_rotation, INTERPOLATION_SPEED)
+	# Remote player - always interpolate to synced state
+	# Interpolate position and rotation smoothly
+	position = position.lerp(synced_position, INTERPOLATION_SPEED)
+	rotation = rotation.lerp(synced_rotation, INTERPOLATION_SPEED)
 
-		# Update local state
-		current_speed = lerpf(current_speed, synced_speed, INTERPOLATION_SPEED)
-		steering_angle = lerpf(steering_angle, synced_steering, INTERPOLATION_SPEED)
+	# Update local state
+	current_speed = lerpf(current_speed, synced_speed, INTERPOLATION_SPEED)
+	steering_angle = lerpf(steering_angle, synced_steering, INTERPOLATION_SPEED)
 
 # Update synced properties (called by host)
 func update_sync_properties(pos: Vector3, rot: Vector3, speed: float, steer: float) -> void:

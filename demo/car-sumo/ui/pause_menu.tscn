@@ -92,13 +92,13 @@ layout_mode = 2
 
 [node name="IPLabel" type="Label" parent="ColorRect/PanelContainer/VBoxContainer/ConnectionPanel"]
 layout_mode = 2
-text = "Enter Host IP:"
+text = "Enter Session ID:"
 horizontal_alignment = 1
 
 [node name="IPLineEdit" type="LineEdit" parent="ColorRect/PanelContainer/VBoxContainer/ConnectionPanel"]
 unique_name_in_owner = true
 layout_mode = 2
-placeholder_text = "127.0.0.1"
+placeholder_text = "abc123def"
 
 [node name="ConnectButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer/ConnectionPanel"]
 unique_name_in_owner = true

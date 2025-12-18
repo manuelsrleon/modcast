@@ -5,12 +5,11 @@ signal peer_connected(peer_id: int)
 signal peer_disconnected(peer_id: int)
 signal connection_failed(reason: String)
 signal game_started()
-signal host_migrated(new_host_id: int)
 signal connection_succeeded()
 signal player_list_updated()
 
-# Network peer (using WebRTC for P2P multiplayer)
-var webrtc_peer: WebRTCMultiplayerPeer = null
+# Network peer (simple ENet for client-server)
+var peer: ENetMultiplayerPeer = null
 
 # Connected players data
 var connected_peers: Dictionary = {}  # peer_id -> player_data
@@ -18,7 +17,6 @@ var connected_peers: Dictionary = {}  # peer_id -> player_data
 # Network state
 var is_host: bool = false
 var is_multiplayer_active: bool = false
-var current_host_id: int = 1
 var local_player_name: String = "Player"
 
 # Network settings
@@ -35,20 +33,21 @@ func _ready() -> void:
 
 # Host a game
 func host_game(player_name: String) -> Error:
-	webrtc_peer = WebRTCMultiplayerPeer.new()
+	print(">>> host_game() called for player: ", player_name)
 
-	# Create as server
-	var err = webrtc_peer.create_server()
+	# Create ENet server
+	peer = ENetMultiplayerPeer.new()
+	var err = peer.create_server(DEFAULT_PORT, MAX_CLIENTS)
 	if err != OK:
-		push_error("Failed to create WebRTC server: ", err)
+		print("ERROR: Failed to create server: ", err)
+		connection_failed.emit("Failed to create server")
 		return err
 
 	# Set as multiplayer peer
-	multiplayer.multiplayer_peer = webrtc_peer
+	multiplayer.multiplayer_peer = peer
 
 	is_host = true
 	is_multiplayer_active = true
-	current_host_id = 1
 	local_player_name = player_name
 
 	# Add self to connected peers
@@ -57,42 +56,34 @@ func host_game(player_name: String) -> Error:
 		"player_name": player_name,
 		"car_model": SaveManager.get_saved_car(),
 		"is_host": true,
-		"is_ready": false,
-		"position": Vector3.ZERO,
-		"rotation": Vector3.ZERO,
-		"velocity": Vector3.ZERO,
-		"steering_angle": 0.0,
-		"current_speed": 0.0
+		"is_ready": false
 	}
 
-	print("Hosting game as: ", player_name)
+	print("✓ Hosting game on port ", DEFAULT_PORT, " as: ", player_name)
 	player_list_updated.emit()
 
 	return OK
 
 # Join a game
 func join_game(host_ip: String, player_name: String) -> Error:
-	webrtc_peer = WebRTCMultiplayerPeer.new()
+	print(">>> join_game() called for player: ", player_name, " connecting to: ", host_ip)
 
-	# Create as client - peer_id 1 is reserved for the host
-	var err = webrtc_peer.create_client(1)
+	# Create ENet client
+	peer = ENetMultiplayerPeer.new()
+	var err = peer.create_client(host_ip, DEFAULT_PORT)
 	if err != OK:
-		push_error("Failed to create WebRTC client: ", err)
+		print("ERROR: Failed to create client: ", err)
+		connection_failed.emit("Failed to connect to server")
 		return err
 
-	# Add peer connection for the host
-	# Note: In a real implementation with signaling, this would be handled differently
-	# For now, we'll use a simplified direct connection approach
-
 	# Set as multiplayer peer
-	multiplayer.multiplayer_peer = webrtc_peer
+	multiplayer.multiplayer_peer = peer
 
 	is_host = false
 	is_multiplayer_active = true
-	current_host_id = 1
 	local_player_name = player_name
 
-	print("Attempting to join game as: ", player_name)
+	print("Attempting to join game at: ", host_ip, ":", DEFAULT_PORT)
 
 	return OK
 
@@ -115,7 +106,7 @@ func disconnect_from_game() -> void:
 		connected_peers.clear()
 		is_host = false
 		is_multiplayer_active = false
-		webrtc_peer = null
+		peer = null
 
 		print("Disconnected from game")
 
@@ -134,7 +125,18 @@ func update_local_player_data(data: Dictionary) -> void:
 		for key in data.keys():
 			connected_peers[my_id][key] = data[key]
 
+		# Broadcast state to all other players
+		rpc("sync_player_state", my_id, data)
+
 # === RPC Methods ===
+
+# Sync player state from any player to all others
+@rpc("unreliable", "any_peer")
+func sync_player_state(peer_id: int, state: Dictionary) -> void:
+	# Update connected peers data
+	if connected_peers.has(peer_id):
+		for key in state.keys():
+			connected_peers[peer_id][key] = state[key]
 
 # Client registers with host when joining
 @rpc("reliable", "any_peer")
@@ -150,12 +152,7 @@ func register_player(player_name: String, car_model: String) -> void:
 		"player_name": player_name,
 		"car_model": car_model,
 		"is_host": false,
-		"is_ready": false,
-		"position": Vector3.ZERO,
-		"rotation": Vector3.ZERO,
-		"velocity": Vector3.ZERO,
-		"steering_angle": 0.0,
-		"current_speed": 0.0
+		"is_ready": false
 	}
 
 	print("Player registered: ", player_name, " (", peer_id, ")")
@@ -211,26 +208,12 @@ func broadcast_car_change(car_model: String) -> void:
 
 	var my_id = multiplayer.get_unique_id()
 
-	if is_host:
-		# Host broadcasts directly
-		rpc("change_car_model", my_id, car_model)
-	else:
-		# Client requests host to broadcast
-		rpc_id(1, "request_car_change", my_id, car_model)
+	# Update local data
+	if connected_peers.has(my_id):
+		connected_peers[my_id].car_model = car_model
 
-# Client requests car change
-@rpc("reliable", "any_peer")
-func request_car_change(peer_id: int, car_model: String) -> void:
-	if not is_host:
-		return
-
-	# Validate car exists
-	if not CarManager.car_exists(car_model):
-		push_error("Invalid car model: ", car_model)
-		return
-
-	# Broadcast to all
-	rpc("change_car_model", peer_id, car_model)
+	# Broadcast to everyone
+	rpc("change_car_model", my_id, car_model)
 
 # === Admin Functions (Host Only) ===
 
@@ -275,11 +258,6 @@ func _on_peer_connected(peer_id: int) -> void:
 func _on_peer_disconnected(peer_id: int) -> void:
 	print("Peer disconnected: ", peer_id)
 
-	# Check if host disconnected
-	if peer_id == current_host_id and not is_host:
-		print("Host disconnected! Initiating host migration...")
-		_initiate_host_migration()
-
 	# Remove from connected peers
 	if connected_peers.has(peer_id):
 		player_left(peer_id)
@@ -295,53 +273,9 @@ func _on_connection_failed() -> void:
 	# Reset state
 	is_multiplayer_active = false
 	is_host = false
-	webrtc_peer = null
+	peer = null
 
 func _on_server_disconnected() -> void:
-	print("Disconnected from server")
-
-	# Host disconnected, initiate migration
-	_initiate_host_migration()
-
-# === Host Migration ===
-
-func _initiate_host_migration() -> void:
-	if connected_peers.size() <= 1:
-		print("No other players, returning to single-player")
-		disconnect_from_game()
-		return
-
-	# Find player with lowest peer_id (excluding disconnected host)
-	var new_host_id = -1
-	for peer_id in connected_peers.keys():
-		if peer_id != current_host_id:
-			if new_host_id == -1 or peer_id < new_host_id:
-				new_host_id = peer_id
-
-	if new_host_id == -1:
-		push_error("Failed to find new host")
-		disconnect_from_game()
-		return
-
-	print("New host elected: ", new_host_id)
-	current_host_id = new_host_id
-
-	# Check if we're the new host
-	if multiplayer.get_unique_id() == new_host_id:
-		_become_host()
-
-	# Broadcast host migration
-	host_migrated.emit(new_host_id)
-
-func _become_host() -> void:
-	print("Becoming new host...")
-	is_host = true
-	current_host_id = multiplayer.get_unique_id()
-
-	# Update our player data
-	if connected_peers.has(current_host_id):
-		connected_peers[current_host_id].is_host = true
-
-	# Recreate WebRTC peer as server
-	# Note: This is a simplified migration. In production, you'd need more sophisticated handling
-	print("Host migration complete")
+	print("Host disconnected!")
+	connection_failed.emit("Host disconnected")
+	disconnect_from_game()

@@ -1,6 +1,7 @@
 extends Node
 
 # Signals
+signal connected_to_server()
 signal offer_received(peer_id: int, offer: String)
 signal answer_received(peer_id: int, answer: String)
 signal ice_candidate_received(peer_id: int, mid: String, index: int, sdp: String)
@@ -24,6 +25,7 @@ func connect_to_server(url: String) -> Error:
 	server_url = url
 	ws = WebSocketPeer.new()
 
+	print("Attempting WebSocket connection to: ", url)
 	var err = ws.connect_to_url(url)
 	if err != OK:
 		push_error("Failed to connect to signaling server: ", err)
@@ -31,7 +33,7 @@ func connect_to_server(url: String) -> Error:
 		return err
 
 	set_process(true)
-	print("Connecting to signaling server: ", url)
+	print("WebSocket connection initiated, waiting for handshake...")
 	return OK
 
 # Disconnect from signaling server
@@ -124,10 +126,15 @@ func _process(delta: float) -> void:
 
 	var state = ws.get_ready_state()
 
-	if state == WebSocketPeer.STATE_OPEN:
+	if state == WebSocketPeer.STATE_CONNECTING:
+		# Still connecting, just wait
+		pass
+
+	elif state == WebSocketPeer.STATE_OPEN:
 		if not is_connected:
 			is_connected = true
-			print("Connected to signaling server")
+			print("✓ Connected to signaling server successfully!")
+			connected_to_server.emit()
 
 		# Process incoming messages
 		while ws.get_available_packet_count() > 0:
@@ -144,12 +151,12 @@ func _process(delta: float) -> void:
 				push_error("Failed to parse signaling message: ", message_text)
 
 	elif state == WebSocketPeer.STATE_CLOSING:
-		pass
+		print("WebSocket closing...")
 
 	elif state == WebSocketPeer.STATE_CLOSED:
 		var code = ws.get_close_code()
 		var reason = ws.get_close_reason()
-		print("Signaling server connection closed: ", code, " - ", reason)
+		print("✗ Signaling server connection closed: ", code, " - ", reason)
 		is_connected = false
 		set_process(false)
 

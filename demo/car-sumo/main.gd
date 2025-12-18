@@ -22,14 +22,14 @@ func _ready() -> void:
 	# If no spawn points, create default ones
 	if spawn_positions.is_empty():
 		spawn_positions = [
-			Vector3(0, 1.5, -5),
-			Vector3(5, 1.5, -5),
-			Vector3(-5, 1.5, -5),
-			Vector3(0, 1.5, -10),
-			Vector3(5, 1.5, -10),
-			Vector3(-5, 1.5, -10),
+			Vector3(0, 1.5, 0),
+			Vector3(5, 1.5, 0),
+			Vector3(-5, 1.5, 0),
+			Vector3(10, 1.5, 0),
+			Vector3(-10, 1.5, 0),
 			Vector3(0, 1.5, 5),
-			Vector3(5, 1.5, 5)
+			Vector3(5, 1.5, 5),
+			Vector3(-5, 1.5, 5)
 		]
 
 	# Connect to NetworkManager signals
@@ -37,20 +37,35 @@ func _ready() -> void:
 		NetworkManager.peer_connected.connect(_on_peer_connected)
 		NetworkManager.peer_disconnected.connect(_on_peer_disconnected)
 		NetworkManager.game_started.connect(_on_game_started)
+		NetworkManager.connection_succeeded.connect(_on_multiplayer_started)
+		NetworkManager.player_list_updated.connect(_on_player_list_updated)
 
-		# If multiplayer is already active (e.g., joined mid-game), spawn existing players
+		# If multiplayer is already active, setup positions
 		if NetworkManager.is_multiplayer_active:
+			_setup_local_player_position()
 			_spawn_all_existing_players()
 
+func _on_multiplayer_started() -> void:
+	print("Main: Multiplayer connection established")
+	_setup_local_player_position()
+
+func _setup_local_player_position() -> void:
+	# Position local player at their spawn point
+	var local_player = get_tree().get_first_node_in_group("player")
+	if local_player:
+		var my_id = multiplayer.get_unique_id()
+		var spawn_index = (my_id - 1) % spawn_positions.size()
+		local_player.position = spawn_positions[spawn_index]
+		print("Positioned local player at: ", local_player.position)
+
 func _on_peer_connected(peer_id: int) -> void:
-	print("Main: Peer connected, spawning player: ", peer_id)
+	print("Main: Peer connected: ", peer_id)
 
-	# Host spawns remote players for all peers (except itself)
-	if NetworkManager.is_host and peer_id != 1:
-		_spawn_remote_player(peer_id)
-
-	# Clients spawn the host's player when they connect
-	elif not NetworkManager.is_host and peer_id == 1:
+	# Always spawn remote player for any other peer
+	var my_id = multiplayer.get_unique_id()
+	if peer_id != my_id:
+		# Wait a frame to ensure player data is synced
+		await get_tree().process_frame
 		_spawn_remote_player(peer_id)
 
 func _on_peer_disconnected(peer_id: int) -> void:
@@ -60,6 +75,13 @@ func _on_peer_disconnected(peer_id: int) -> void:
 func _on_game_started() -> void:
 	print("Main: Game started!")
 	# Game start logic here (e.g., enable car controls, start countdown, etc.)
+
+func _on_player_list_updated() -> void:
+	# Spawn any new players that aren't spawned yet
+	var my_id = multiplayer.get_unique_id()
+	for peer_id in NetworkManager.connected_peers.keys():
+		if peer_id != my_id and not remote_players.has(peer_id):
+			_spawn_remote_player(peer_id)
 
 func _spawn_all_existing_players() -> void:
 	# Spawn all players that are already in the session
@@ -85,7 +107,7 @@ func _spawn_remote_player(peer_id: int) -> void:
 	remote_player.peer_id = peer_id
 	remote_player.player_name = player_data.get("player_name", "Player")
 	remote_player.car_model = player_data.get("car_model", "")
-	remote_player.name = "Player_%d" % peer_id
+	remote_player.name = "RemotePlayer_%d" % peer_id
 
 	# Set spawn position (use peer_id to determine spawn point)
 	var spawn_index = (peer_id - 1) % spawn_positions.size()
@@ -101,7 +123,7 @@ func _spawn_remote_player(peer_id: int) -> void:
 	# Track spawned player
 	remote_players[peer_id] = remote_player
 
-	print("Spawned remote player: ", remote_player.player_name, " at position ", remote_player.position)
+	print("✓ Spawned REMOTE player for peer ", peer_id, " (", remote_player.player_name, ") at position ", remote_player.position)
 
 func _despawn_remote_player(peer_id: int) -> void:
 	if not remote_players.has(peer_id):
@@ -123,7 +145,7 @@ func update_remote_player_car(peer_id: int, car_model: String) -> void:
 	var remote_player = remote_players[peer_id]
 	remote_player.load_car_model(car_model)
 
-# Physics process to update remote player states (if needed)
+# Physics process to update remote player states
 func _physics_process(delta: float) -> void:
 	if not NetworkManager.is_multiplayer_active:
 		return
@@ -133,9 +155,14 @@ func _physics_process(delta: float) -> void:
 		var remote_player = remote_players[peer_id]
 		var player_data = NetworkManager.get_player_data(peer_id)
 
-		if not player_data.is_empty():
+		if not player_data.is_empty() and is_instance_valid(remote_player):
 			# Update synced properties
-			remote_player.synced_position = player_data.get("position", remote_player.position)
+			var new_pos = player_data.get("position", remote_player.position)
+			remote_player.synced_position = new_pos
 			remote_player.synced_rotation = player_data.get("rotation", remote_player.rotation)
 			remote_player.synced_speed = player_data.get("current_speed", 0.0)
 			remote_player.synced_steering = player_data.get("steering_angle", 0.0)
+
+			# Debug: print occasionally
+			if Engine.get_physics_frames() % 60 == 0:  # Every 60 physics frames
+				print("Updating remote player ", peer_id, " to position: ", new_pos)

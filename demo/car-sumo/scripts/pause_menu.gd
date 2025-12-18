@@ -56,9 +56,8 @@ func _input(event: InputEvent) -> void:
 func toggle_pause() -> void:
 	visible = !visible
 
-	# Don't pause tree in multiplayer
-	if not NetworkManager.is_multiplayer_active:
-		get_tree().paused = visible
+	# NEVER pause tree in multiplayer
+	get_tree().paused = false
 
 	if visible:
 		populate_car_list()
@@ -135,10 +134,11 @@ func _on_resume_pressed() -> void:
 
 func _on_host_pressed() -> void:
 	var player_name = "Player"  # Could get from settings
-	var result = NetworkManager.host_game(player_name)
+	status_label.text = "Creating server..."
+	var result = await NetworkManager.host_game(player_name)
 
 	if result == OK:
-		status_label.text = "Hosting game..."
+		status_label.text = "Hosting on port " + str(NetworkManager.DEFAULT_PORT) + ". Share your IP with players!"
 		lobby_panel.visible = true
 		admin_controls.visible = true
 		host_button.disabled = true
@@ -159,7 +159,7 @@ func _on_connect_pressed() -> void:
 		return
 
 	var player_name = "Player"  # Could get from settings
-	var result = NetworkManager.join_game(host_ip, player_name)
+	var result = await NetworkManager.join_game(host_ip, player_name)
 
 	if result == OK:
 		status_label.text = "Connecting to host..."

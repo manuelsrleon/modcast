@@ -21,9 +21,12 @@ var was_on_floor: bool = false
 
 
 func _ready() -> void:
-	# Check if we have local authority
-	if NetworkManager.is_multiplayer_active:
-		is_local_authority = NetworkManager.is_host
+	# Everyone has authority over their own player
+	is_local_authority = true
+
+	# Set this as the local player's group
+	add_to_group("local_player")
+	print("Local player ready at position: ", position)
 
 func _physics_process(delta: float) -> void:
 	# Add gravity
@@ -35,17 +38,12 @@ func _physics_process(delta: float) -> void:
 	var reverse_input = Input.get_action_strength("reverse")
 	var steer = Input.get_axis("turn_left", "turn_right")
 
-	# Check if multiplayer is active and we're a client
-	if NetworkManager.is_multiplayer_active and not is_local_authority:
-		# Client: send input to host instead of processing locally
-		_send_input_to_host(accelerate_input, reverse_input, steer, delta)
-		return  # Don't process physics locally
-
-	# Process physics (single-player or host)
+	# ONLY process physics if we have input (local control)
 	_process_physics(accelerate_input, reverse_input, steer, delta)
 
-	# If multiplayer host, update NetworkManager with our state
-	if NetworkManager.is_multiplayer_active and is_local_authority:
+	# If multiplayer active, broadcast our state to everyone
+	if NetworkManager.is_multiplayer_active:
+		var my_id = multiplayer.get_unique_id()
 		NetworkManager.update_local_player_data({
 			"position": position,
 			"rotation": rotation,
@@ -53,6 +51,7 @@ func _physics_process(delta: float) -> void:
 			"steering_angle": steering_angle,
 			"velocity": velocity
 		})
+		#print("Broadcasting position from peer ", my_id, ": ", position)
 
 # Process physics (used by single-player, host, and host processing client input)
 func _process_physics(accelerate_input: float, reverse_input: float, steer: float, delta: float) -> void:
@@ -84,33 +83,9 @@ func _process_physics(accelerate_input: float, reverse_input: float, steer: floa
 
 	move_and_slide()
 
-	# Check for events (only if we have authority to avoid duplicates)
-	if is_local_authority or not NetworkManager.is_multiplayer_active:
-		_check_jump_event()
-		_check_collision_events()
-
-# Send input to host (client only)
-func _send_input_to_host(accelerate: float, reverse: float, steer: float, delta: float) -> void:
-	# Store last input
-	last_input = {
-		"accelerate": accelerate,
-		"reverse": reverse,
-		"steer": steer,
-		"delta": delta
-	}
-
-	# Send to host via RPC (unreliable for frequent updates)
-	rpc_id(1, "receive_client_input", accelerate, reverse, steer, delta)
-
-# Host receives client input
-@rpc("unreliable", "any_peer")
-func receive_client_input(accelerate: float, reverse: float, steer: float, delta: float) -> void:
-	# Only host processes this
-	if not NetworkManager.is_host:
-		return
-
-	# Process physics for this client
-	_process_physics(accelerate, reverse, steer, delta)
+	# Check for events
+	_check_jump_event()
+	_check_collision_events()
 
 # === Game Events ===
 
