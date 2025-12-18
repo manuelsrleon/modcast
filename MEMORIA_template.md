@@ -104,16 +104,34 @@ Se sigue [The Elixir Style Guide](https://github.com/christopheradams/elixir_sty
 
 ### Estructura del proyecto
 
+Basada en la estructura estándar de Mix:
 
+```
+modcast/
+├── lib/
+│   └── modcast/
+│       ├── msapi.ex                    # Interfaz con motor de juego
+│       ├── game_state/
+│       │   ├── game_state_component.ex # Orquestador P2P
+│       │   └── entity.ex               # Entidades del juego
+│       ├── file_transfer_component.ex  # Transferencia de archivos
+│       ├── sync_status_ledger.ex       # Registro distribuido
+│       ├── persistence.ex              # Capa de persistencia
+│       └── utils.ex                    # Utilidades
+├── test/
+│   ├── sync_status_ledger_test.exs
+│   └── test_helper.exs
+├── demo/
+│   └── car-sumo/                       # Juego demo en Godot
+├── tests/                              # Tests de integración Python
+├── mix.exs                             # Configuración del proyecto
+├── README.md
+└── documentation.md                    # Documentación técnica completa
+```
 
 ### Mensajes de commit
 
-Formato: 
-
-**Tipos:**
-
-**Ejemplo:**
-
+Formato: Para los commits decidimos hacerlos todos en *ingles* y utilizar los verbos en el infinitivo (en vez de Added --> Add) 
 
 ### Estrategia de ramas
 
@@ -135,13 +153,12 @@ Formato:
 - F03: MSAPI Initialization
 - F04: SSL implementation
 - F08: MDF player car definition
+- FD-Memoria
 
 
 ## Documentación de la aplicación
 
 ### Aplicación
-
-**Ver:** `README.md` y `documentatio.md` para documentación completa.
 
 #### Casos de Uso Principales
 
@@ -176,8 +193,6 @@ Formato:
 
 ### Diseño
 
-**Ver:** `documentatio.md` para diagramas de arquitectura completos.
-
 #### Arquitectura Principal
 
 **Estilo arquitectónico:** P2P (Peer-to-Peer) con componentes de Event-Driven Architecture
@@ -187,7 +202,155 @@ Formato:
 2. **GSC (Game State Component)** - Orquestador P2P (GenServer)
 3. **SSL (Sync Status Ledger)** - Registro distribuido CRDT-like
 4. **FTC (File Transfer Component)** - Transferencia de archivos
-5. **Persistence** - Almacenamiento local DETS
+5. **Persistence** - Almacenamiento local DETS (no en uso actualmente)
+6. **MMF (Modcast Mod File)** - Formato de mods (.zip)
+7. **Storage** - Sistema de archivos persistente (./mods, ./data)
+
+**Diagrama de Arquitectura:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         GAME ENGINE                             │
+│                    (Godot, Unity, Unreal...)                    │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ TCP/JSON (port 5050)
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│                    MSAPI (Modcast SyncAPI)                      │
+│              Game Engine Interface & Command Parser             │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│             GSC (Game State Component)                          │
+│         Core P2P State Manager & Orchestrator                   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  • Session Management                                     │  │
+│  │  • Player Registry (players, peers, connections)          │  │
+│  │  • Mod Selection & Announcement                           │  │
+│  │  • Required Mods Tracking                                 │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└──────┬──────────────────────┬──────────────────┬────────────────┘
+       │                      │                  │
+       ▼                      ▼                  ▼
+┌─────────────┐    ┌─────────────────┐   ┌──────────────┐
+│     SSL     │    │       FTC       │   │   NETWORK    │
+│   (Ledger)  │    │ (File Transfer) │   │   (TCP/IP)   │
+└─────────────┘    └─────────────────┘   └──────────────┘
+       │                      │                  │
+       ▼                      ▼                  ▼
+┌─────────────────────────────────────────────────────────┐
+│                   PERSISTENT STORAGE                     │
+│   ./mods/  (Shared across sessions, MD5-indexed)        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Topología de Red:**
+
+```
+        Player1 (Host)
+           /  \
+          /    \
+         /      \
+    Player2-----Player3
+         \      /
+          \    /
+           \  /
+        (Mesh Network)
+
+Cada jugador mantiene conexiones directas con todos los demás
+```
+
+#### Detalles de Componentes
+
+**1. MSAPI (Modcast SyncAPI)**
+- Ubicación: `lib/modcast/msapi.ex`
+- Puerto: 5050 (TCP)
+- Protocolo: JSON sobre TCP
+- Comandos disponibles:
+  - `start_session`: Crear sesión P2P (host)
+  - `join_session`: Unirse a sesión existente
+  - `select_mods`: Seleccionar mods para compartir
+  - `start_game`: Iniciar juego
+  - `register_entity`: Crear entidad con mod
+  - `transfer_entity`: Transferir propiedad
+  - `list_available_mods`: Listar mods locales
+
+**2. GSC (Game State Component)**
+- Ubicación: `lib/modcast/game_state/game_state_component.ex`
+- Tipo: GenServer
+- Responsabilidades:
+  - Gestión de sesiones P2P
+  - Registro de jugadores
+  - Coordinación de transferencias
+  - Sincronización de estado
+
+**Ciclo de Vida de Sesión:**
+```
+┌──────┐  select_mods()   ┌──────┐  start/join_session()  ┌─────────┐
+│ IDLE │─────────────────>│ IDLE │──────────────────────>│ LOADING │
+└──────┘  (pre-selección)  └──────┘  (con mods)            └─────────┘
+                                                                 │
+                                                                 │ start_game()
+                                                                 ▼
+   ┌──────┐                                                 ┌─────────┐
+   │ IDLE │◀────────────────────────────────────────────────│ IN_GAME │
+   └──────┘              leave_session()                    └─────────┘
+```
+
+**Flujo de Selección de Mods:**
+1. Escanear carpeta local → `available_mods`
+2. PRE-SELECCIONAR mods en `:idle` (antes de sesión)
+3. Unirse/iniciar sesión (valida selección)
+4. Anunciar SOLO `selected_mods` a peers
+5. Calcular `required_mods` (unión de selecciones)
+6. Descargar mods faltantes automáticamente
+7. Iniciar juego cuando todos estén listos
+
+**3. SSL (Sync Status Ledger)**
+- Ubicación: `lib/modcast/sync_status_ledger.ex`
+- Propósito: Registro distribuido de entidades
+- Estructura de entidad:
+```elixir
+%Entity{
+  entity_id: "sword_001",
+  asset_id: "weapon_sword",
+  hash: "abc123...",
+  player_id: "Player1",
+  created_at: ~U[2025-01-15 10:00:00Z],
+  last_transferred: ~U[2025-01-15 10:05:00Z]
+}
+```
+
+**4. FTC (File Transfer Component)**
+- Ubicación: `lib/modcast/file_transfer_component.ex`
+- Protocolo:
+  - `{:request_mod, hash, filename, requestor_id}`
+  - `{:mod_file, session_id, hash, filename, binary_data}`
+- Límite: 10 MB por archivo
+- Verificación: MD5 hash antes y después
+
+**5. MMF (Modcast Mod File)**
+- Formato: Archivos ZIP estándar
+- Identificación: Hash MD5 del archivo completo
+- Contenido: Assets del juego (texturas, modelos, etc.)
+- Ejemplo:
+```
+fire_sword.zip (3.2 MB)
+├── textures/
+│   ├── blade_fire.png
+│   └── handle_wood.png
+├── models/
+│   └── sword.obj
+└── metadata.json
+```
+
+**6. Almacenamiento Persistente**
+- Ubicación: `./mods/` (mods descargados)
+- Persistencia: Entre sesiones
+- Beneficios:
+  - Sin descargas redundantes
+  - Biblioteca de mods crece con el tiempo
+  - Inicio de sesión más rápido
 
 #### Decisiones de Diseño (ADR)
 
@@ -278,6 +441,7 @@ iex> Modcast.MSAPI.start_link()
 import socket
 import json
 
+
 # Conectar al puerto MSAPI
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.connect(("127.0.0.1", 5050))
@@ -308,8 +472,37 @@ mix test --cover
 **Tests de integración (Python):**
 ```bash
 cd tests
-python test_file_transfer.py
+python multiple_instance_2.py
 ```
+
+**Tests implementados:**
+1. **Test 1**: Basic Mod Sharing - 2 jugadores, 1 mod cada uno
+2. **Test 2**: Multiple Mods - Múltiples mods por jugador
+3. **Test 3**: Three Players - Red mesh de 3 jugadores
+
+**Cobertura:**
+- Sync Status Ledger: ~95% (21/21 tests passing)
+- File Transfer: ~70% (tests básicos)
+- MSAPI: ~60% (comandos principales)
+- GSC: ~50% (lógica P2P básica)
+
+**Escenarios cubiertos:**
+✅ Creación y gestión de sesiones P2P
+✅ Selección y anuncio de mods
+✅ Transferencia de archivos entre peers
+✅ Verificación de integridad (MD5)
+✅ Resolución de conflictos en SSL
+✅ Persistencia de mods descargados
+✅ Registro y transferencia de entidades
+✅ Serialización/deserialización JSON
+✅ Detección de mods duplicados
+
+**Escenarios NO cubiertos:**
+❌ Tests de red real con múltiples máquinas
+❌ Tests de rendimiento bajo carga
+❌ NAT traversal (STUN/TURN)
+❌ Archivos > 10MB (chunked transfer)
+❌ Reconexión automática tras desconexión
 
 #### Demo con Godot
 
@@ -324,164 +517,118 @@ iex -S mix
 # El juego se conectará automáticamente al puerto 5050
 ```
 
+---
 
-### Tests
+## Protocolo de Red
 
-Documentación de los tests implementados:
+### Mensajes del Sistema
 
-  - Tipos de tests.
-  
-  - Escenarios cubiertos por las pruebas.
-  
-  - Escenarios no cubiertos por las pruebas.
+**Gestión de Sesiones:**
+```elixir
+{:handshake, session_id, player_id}
+{:handshake_response, player_id}
+{:handshake_response_with_peers, player_id, peer_list}
+{:new_peer_joined, player_id, port}
+{:player_left, player_id}
+```
 
+**Sincronización de Mods:**
+```elixir
+{:selected_mods, player_id, [hash1, hash2, ...]}
+{:request_mod, hash, filename, requestor_id}
+{:mod_file, session_id, hash, filename, binary_data}
+```
 
-# Presentación
+**Gestión de Entidades:**
+```elixir
+{:entity_created, %Entity{}}
+{:entity_transferred, entity_id, new_player_id}
+{:full_sync, %SyncStatusLedger{}}
+```
 
-Durante la última clase del cuatrimestre cada grupo realizará una
-breve presentación del proyecto desarrollado.
+**Control de Juego:**
+```elixir
+{:game_started}
+```
 
-  - Deben participar todos los integrantes del grupo.
-  
-  - El material audiovisual de apoyo a la presentación se debe incluir
-    en este repositorio.
-	
-  - También se debe incluir en el repositorio las instrucciones
-    necesarias para replicar la demostración realizada durante la
-    presentación.
-	
-  - La presentación debe contener los siguientes aspectos:
-  
-      - Presentación del proyecto, incluyendo:
-  
-        * Descripción de los requisitos funcionales
-          
-        * Descripción de los requisitos no funcionales
-          
-      - Presentación de la solución arquitectónica diseñada, incluyendo:
-  
-        * Representación C4
-          
-        * Tácticas aplicadas para afrontar los requisitos no
-          funcionales
-          
-      - Aspectos relevantes de la implementación realizada:
-  
-        * Estructura del proyecto en el repositorio
-          
-        * Elementos destacados (posible uso de Agents, Tasks,
-          GenServer, Supervisor, ...)
-          
-        * Alcance de las pruebas
-          
-        * Documentación
-		
-		* Cualquier otro aspecto que pudiera ser relevante
-          
-      - Realización de una demostración de funcionamiento
+---
 
-  - La presentación seguirá el guión que el equipo de desarrollo
-    considere oportuno. No es necesario seguir el orden establecido en
-    el punto anterior.
+## Configuración
 
+### Puertos
+- **MSAPI**: 5050 (Game Engine ↔ Modcast)
+- **P2P Network**: 4040 (Player ↔ Player)
 
-Al finalizar la exposición, habrá una ronda de preguntas por parte de
-los asistentes: profesorado y estudiantes.
+### Límites de Archivos
+- **Tamaño máximo de mod**: 10 MB (configurable)
+- **Formatos soportados**: .zip
 
+### Directorios
+- **Mods**: `./mods/` (almacenamiento persistente)
+- **Data**: `./data/` (estado DETS - no en uso)
 
-# Guía para la evaluación
+---
 
-La evaluación de la práctica se basa en los siguientes criterios:
+## Problemas Conocidos y Soluciones
 
-- Arquitectura distribuida. 1 punto.
+### ✅ SOLUCIONADO: Hash Mismatch entre Python y Elixir
+**Problema**: Python calculaba hashes MD5 diferentes a Elixir.
+**Solución**: Los tests ahora consultan a Elixir por los hashes reales.
 
-	Se considera si se ha desarrollado una arquitectura distribuida.
-    Para considerar si la arquitectura es distribuida no se tienen en
-    cuenta los posibles clientes de la aplicación.
-  
-  
-- Calidad del diseño. Hasta 3 puntos.
+### ✅ SOLUCIONADO: Flujo Incorrecto de Selección de Mods
+**Problema**: Mods seleccionados después de unirse, carpeta completa expuesta.
+**Solución**: Pre-selección implementada en fase `:idle`.
 
-	Algunos indicadores típicos son:
-	
-    - La arquitectura o combinación/adaptación de la/s arquitectura/s
-      es adecuada para resolver el proyecto planteado.
-   
-    - El desarrollo de la arquitectura es correcto.
+### ✅ SOLUCIONADO: Errores de File Handle en Tests
+**Problema**: `I/O operation on closed file` al reutilizar instancias.
+**Solución**: Llamar `setup()` al inicio de cada test.
 
-    - Las tácticas aplicadas resuelven los requisitos no funcionales.
-   
-    - Las tácticas encajan y se aplican correctamente a la
-      arquitectura diseñada.
-   
-    - La documentación de la arquitectura no se limita a los diagramas
-      C4.
-	
-	
-- Calidad del desarrollo. Hasta 3 puntos.
+---
 
-	Algunos indicadores típicos son:
-	
-    - Existe una planificación y asignación eficaz de tareas.
-	
-    - El uso del control de versiones es coherente con las normas
-      establecidas, y se corresponde con la asignación de tareas a los
-      miembros del equipo.
+## Troubleshooting
 
-    - Se han desarrollado pruebas a distintos niveles: unidad,
-      integración, sistema, ... y cubren los aspectos claves de la
-      aplicación.
-	  
-    - El estilo del código es homogéneo en todo el proyecto y adecuado
-      para el lenguaje de programación empleado.
-	  
-    - Se usan las librerías estándar, herramientas y abstracciones
-      habituales. Por ejemplo, en _elixir_: _behaviours_, _mix_,
-      _heartbeat_, ...
-	  
-    - No se detectan bugs ni problemas de rendimiento.
+### Error: "Cannot select mods we don't have"
+**Causa**: Hash mismatch o mods no escaneados
+**Solución**: 
+1. Crear mods ANTES de iniciar Elixir
+2. Consultar: `list_available_mods`
+3. Usar hashes devueltos para `select_mods`
 
-    - El proyecto se ha implementado en su totalidad. No existen
-      partes de la aplicación diseñadas, pero no implementadas.
+### Error: "No mods selected"
+**Causa**: Intentar start/join sin pre-selección
+**Solución**:
+```python
+# ORDEN CORRECTO:
+select_mods([hash1, hash2])  # Primero
+start_session()              # Segundo
+```
 
-	  
-- Calidad de la documentación. Hasta 1 punto.
+### Error: "Player ID mismatch"
+**Causa**: Diferente player_id en select_mods vs start/join
+**Solución**: Usar mismo player_id para ambas operaciones
 
-	Se tendrá en cuenta que:
-	
-    - Están documentados todos los aspectos recogidos en la sección de
-      documentación: requisitos funcionales y no funcionales, tácticas
-      implementadas, decisiones de diseño, diagramas C4, etc.
-	  
-    - El código y las pruebas están documentados.
-	
-    - Se han establecido las normas para la redacción de mensajes de
-      commit, estilo de código, etc.
-	  
-    - Contiene toda la información solicitada en este README.
-	
-	
-- Calidad de la presentación. Hasta 1 punto.
+---
 
-	Se valorará:
-	
-    - El cumplimiento de las instrucciones dadas para las
-      presentaciones.
-	
-    - La claridad de la exposición.
-	
-    - La participación en el resto de presentaciones.
-   
+## Mejoras Futuras
 
-- Calidad global del proyecto. Hasta 1 punto.
+- [ ] Uso de persistence.ex para recuperación de sesiones
+- [ ] Chunked file transfer para mods >10MB
+- [ ] Compresión (gzip) para transferencias
+- [ ] NAT traversal (STUN/TURN)
+- [ ] Web UI para gestión de mods
+- [ ] Bandwidth throttling
+- [ ] Colas de prioridad para descargas
+- [ ] Versionado de mods
+- [ ] Checksums alternativos (SHA-256)
+- [ ] Actualizaciones automáticas de mods
+- [ ] Gestión de dependencias entre mods
 
-	En este apartado el profesorado evaluará cualquier otro aspecto no
-    contenido en los apartados anteriores.
-          
-          
+---
 
+## Recursos Adicionales
 
-> [!CAUTION]
-> Si se detecta una participación desigual en el desarrollo
-> del proyecto, el profesorado puede optar por una evaluación
-> individual del trabajo.
+**Documentación completa**: Ver `documentation.md` para detalles técnicos exhaustivos
+
+**Supervisión**: David Cabrero Souto
+
+**Licencia**: GNU General Public License v3.0
