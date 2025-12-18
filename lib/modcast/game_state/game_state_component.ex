@@ -1,6 +1,13 @@
 defmodule Modcast.GameState.GameStateComponent do
   @moduledoc """
   Game State Component - Core P2P game state manager.
+  
+  CORRECTED VERSION: Implements proper mod selection flow:
+  1. Select mods while in :idle phase (before joining)
+  2. Join session (validates mods are selected)
+  3. Announce ONLY selected mods to peers
+  4. Download missing mods
+  5. Start game when all mods are ready
   """
   use GenServer
   require Logger
@@ -56,18 +63,40 @@ defmodule Modcast.GameState.GameStateComponent do
   @impl true
   def handle_call({:start_session, session_id, player_id, port}, _from, state) do
     cond do
-      state.phase != :idle -> {:reply, {:error, :already_in_session}, state}
+      state.phase != :idle -> 
+        {:reply, {:error, :already_in_session}, state}
+      
+      # CORRECCIÓN: Validar que hay mods seleccionados
+      MapSet.size(state.selected_mods) == 0 ->
+        Logger.warning("[GSC] Cannot start session: no mods selected. Use select_mods() first.")
+        {:reply, {:error, :no_mods_selected}, state}
+      
+      # CORRECCIÓN: Validar que el player_id coincide con el usado en select_mods
+      state.local_player_id != nil and state.local_player_id != player_id ->
+        Logger.warning("[GSC] Player ID mismatch: selected mods as #{state.local_player_id}, trying to start as #{player_id}")
+        {:reply, {:error, :player_id_mismatch}, state}
+      
       true ->
         {available_mods, mod_metadata} = scan_local_mods(state.mods_folder)
         case start_listener(port) do
           {:ok, listener_socket} ->
             accept_next_connection(listener_socket)
-            new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading,
-              available_mods: available_mods, mod_metadata: mod_metadata, listener_socket: listener_socket,
-              selected_mods: MapSet.new(), required_mods: MapSet.new(), player_selections: %{}, p2p_host: port, is_host: true}
+            new_state = %{state | 
+              session_id: session_id, 
+              local_player_id: player_id, 
+              phase: :loading,
+              available_mods: available_mods, 
+              mod_metadata: mod_metadata, 
+              listener_socket: listener_socket,
+              # CORRECCIÓN: Mantener selected_mods de la pre-selección
+              required_mods: state.selected_mods,
+              player_selections: Map.put(%{}, player_id, state.selected_mods),
+              p2p_host: port, 
+              is_host: true
+            }
             |> register_player(player_id, :connected)
             Logger.info("[GSC] Session started: #{session_id} on port #{port}")
-            Logger.info("[GSC] #{MapSet.size(available_mods)} mods available. Use select_mods() to choose which to share.")
+            Logger.info("[GSC] Using #{MapSet.size(state.selected_mods)} pre-selected mods")
             {:reply, {:ok, :session_started}, new_state}
           {:error, reason} ->
             Logger.error("[GSC] Failed to start session: #{reason}")
@@ -79,19 +108,38 @@ defmodule Modcast.GameState.GameStateComponent do
   @impl true
   def handle_call({:join_session, session_id, player_id, host, port}, _from, state) do
     cond do
-      state.phase != :idle -> {:reply, {:error, :already_in_session}, state}
+      state.phase != :idle -> 
+        {:reply, {:error, :already_in_session}, state}
+      
+      # CORRECCIÓN: Validar que hay mods seleccionados
+      MapSet.size(state.selected_mods) == 0 ->
+        Logger.warning("[GSC] Cannot join session: no mods selected. Use select_mods() first.")
+        {:reply, {:error, :no_mods_selected}, state}
+      
+      # CORRECCIÓN: Validar que el player_id coincide con el usado en select_mods
+      state.local_player_id != nil and state.local_player_id != player_id ->
+        Logger.warning("[GSC] Player ID mismatch: selected mods as #{state.local_player_id}, trying to join as #{player_id}")
+        {:reply, {:error, :player_id_mismatch}, state}
+      
       true ->
         {available_mods, mod_metadata} = scan_local_mods(state.mods_folder)
         case connect_to_peer(host, port) do
           {:ok, socket, peer_id} ->
-            new_state = %{state | session_id: session_id, local_player_id: player_id, phase: :loading,
-              available_mods: available_mods, mod_metadata: mod_metadata,
-              selected_mods: MapSet.new(), required_mods: MapSet.new(), player_selections: %{}}
+            new_state = %{state | 
+              session_id: session_id, 
+              local_player_id: player_id, 
+              phase: :loading,
+              available_mods: available_mods, 
+              mod_metadata: mod_metadata,
+              # CORRECCIÓN: Mantener selected_mods de la pre-selección
+              required_mods: state.selected_mods,
+              player_selections: Map.put(%{}, player_id, state.selected_mods)
+            }
             |> register_player(player_id, :connected)
             |> add_peer(peer_id, player_id, socket)
             send_handshake(socket, session_id, player_id)
             Logger.info("[GSC] Joined session: #{session_id} at #{host}:#{port}")
-            Logger.info("[GSC] #{MapSet.size(available_mods)} mods available. Use select_mods() to choose which to share.")
+            Logger.info("[GSC] Using #{MapSet.size(state.selected_mods)} pre-selected mods")
             {:reply, {:ok, :joined_session}, new_state}
           {:error, reason} ->
             Logger.error("[GSC] Failed to join session: #{reason}")
@@ -106,12 +154,18 @@ defmodule Modcast.GameState.GameStateComponent do
       state.phase == :in_game ->
         Logger.warning("[GSC] Cannot select mods: game already started")
         {:reply, {:error, :game_already_started}, state}
-      state.phase != :loading ->
-        Logger.warning("[GSC] Cannot select mods: not in loading phase")
+      
+      # CORRECCIÓN: Permitir selección en :idle (antes de unirse) y :loading (ya en sesión)
+      state.phase != :loading and state.phase != :idle ->
+        Logger.warning("[GSC] Cannot select mods: wrong phase (#{state.phase})")
         {:reply, {:error, :wrong_phase}, state}
-      player_id != state.local_player_id ->
+      
+      # CORRECCIÓN: Solo validar player_id si ya estamos en sesión (:loading)
+      # En :idle, local_player_id es nil, así que guardamos el player_id para cuando se una
+      state.phase == :loading and player_id != state.local_player_id ->
         Logger.warning("[GSC] Cannot select mods for another player")
         {:reply, {:error, :not_local_player}, state}
+      
       true ->
         requested = MapSet.new(mod_hashes)
         missing_locally = MapSet.difference(requested, state.available_mods)
@@ -119,18 +173,38 @@ defmodule Modcast.GameState.GameStateComponent do
           Logger.warning("[GSC] Cannot select mods we don't have: #{inspect(MapSet.to_list(missing_locally))}")
           {:reply, {:error, {:mods_not_available, MapSet.to_list(missing_locally)}}, state}
         else
-          new_selections = Map.put(state.player_selections, player_id, requested)
-          new_state = %{state | selected_mods: requested, player_selections: new_selections,
-            required_mods: MapSet.union(state.required_mods, requested)}
-          broadcast_message(new_state, {:selected_mods, player_id, mod_hashes})
-          broadcast_message(new_state, {:available_mods, player_id, mod_hashes})
-          Logger.info("[GSC] Player #{player_id} selected #{length(mod_hashes)} mods for this session")
-          missing_from_peers = MapSet.difference(state.required_mods, state.available_mods)
-          if MapSet.size(missing_from_peers) > 0 do
-            new_state = request_missing_mods(new_state, missing_from_peers)
-            {:reply, {:ok, :mods_selected, MapSet.to_list(missing_from_peers)}, new_state}
+          # Guardar selección
+          new_state = %{state | selected_mods: requested}
+          
+          # CORRECCIÓN: En :idle, también guardar el player_id para usarlo cuando se una a sesión
+          if state.phase == :idle do
+            new_state = %{new_state | local_player_id: player_id}
+          end
+          
+          # CORRECCIÓN: Solo anunciar si ya estamos en sesión (:loading)
+          if state.phase == :loading do
+            new_selections = Map.put(state.player_selections, player_id, requested)
+            new_state = %{new_state | 
+              player_selections: new_selections,
+              required_mods: MapSet.union(state.required_mods, requested)
+            }
+            
+            # Anunciar solo mods seleccionados
+            broadcast_message(new_state, {:selected_mods, player_id, mod_hashes})
+            broadcast_message(new_state, {:available_mods, player_id, mod_hashes})
+            Logger.info("[GSC] Player #{player_id} selected #{length(mod_hashes)} mods for this session")
+            
+            missing_from_peers = MapSet.difference(new_state.required_mods, new_state.available_mods)
+            if MapSet.size(missing_from_peers) > 0 do
+              new_state = request_missing_mods(new_state, missing_from_peers)
+              {:reply, {:ok, :mods_selected, MapSet.to_list(missing_from_peers)}, new_state}
+            else
+              {:reply, {:ok, :mods_selected, []}, new_state}
+            end
           else
-            {:reply, {:ok, :mods_selected, []}, new_state}
+            # En :idle, solo guardar localmente (pre-selección)
+            Logger.info("[GSC] Player #{player_id} pre-selected #{length(mod_hashes)} mods (will announce when joining session)")
+            {:reply, {:ok, :mods_preselected}, new_state}
           end
         end
     end
@@ -250,9 +324,20 @@ defmodule Modcast.GameState.GameStateComponent do
         broadcast_message(state, {:player_left, state.local_player_id})
         Enum.each(state.peers, fn {_, peer} -> if peer.socket, do: :gen_tcp.close(peer.socket) end)
         if state.listener_socket, do: :gen_tcp.close(state.listener_socket)
-        new_state = %{state | session_id: nil, local_player_id: nil, players: %{}, peers: %{}, phase: :idle,
-          selected_mods: MapSet.new(), required_mods: MapSet.new(), ssl: SyncStatusLedger.new(),
-          player_selections: %{}, listener_socket: nil}
+        
+        # CORRECCIÓN: Limpiar selected_mods al salir de sesión
+        new_state = %{state | 
+          session_id: nil, 
+          local_player_id: nil, 
+          players: %{}, 
+          peers: %{}, 
+          phase: :idle,
+          selected_mods: MapSet.new(), 
+          required_mods: MapSet.new(), 
+          ssl: SyncStatusLedger.new(),
+          player_selections: %{}, 
+          listener_socket: nil
+        }
         Logger.info("[GSC] Session ended: #{session_id}")
         Logger.info("[GSC] #{MapSet.size(new_state.available_mods)} mods remain available for next session")
         {:noreply, new_state}
@@ -405,6 +490,8 @@ defmodule Modcast.GameState.GameStateComponent do
                   send_message(socket, {:handshake_response, state.local_player_id})
                 end
                 send_message(socket, {:full_sync, state.ssl})
+                
+                # CORRECCIÓN: Solo anunciar mods SELECCIONADOS, no todos los disponibles
                 if MapSet.size(state.selected_mods) > 0 do
                   send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
                   send_message(socket, {:selected_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
@@ -461,6 +548,8 @@ defmodule Modcast.GameState.GameStateComponent do
       {:handshake_response, remote_player_id} ->
         if peer_id = find_peer_id_by_socket(state, socket) do
           new_state = update_peer_player_id(state, peer_id, remote_player_id)
+          
+          # CORRECCIÓN: Solo enviar mods SELECCIONADOS
           if MapSet.size(state.selected_mods) > 0 do
             send_message(socket, {:available_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
             send_message(socket, {:selected_mods, state.local_player_id, MapSet.to_list(state.selected_mods)})
