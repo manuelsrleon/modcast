@@ -1,0 +1,32 @@
+@startUML ModeloC4
+!include <C4/C4_Component>
+
+title Diagrama de Contedor - Modcast
+
+Person(maker, "Maker", "Quere fabricar chaveiros con impresión 3D de maneira rápida e escalable")
+
+System_Boundary(leaderWorkerSystem, "Modcast") {
+
+    Container_Boundary(node1_admin, "Nodo 1 - Admin") {
+        Component(LeaderComponent,"Xogador 1 (Modcast)", "Inicializa a partida, invita a novos xogadores e contribúe á sincronización de elemento", "", "")
+    }
+
+    Container_Boundary(node2_admin, "Nodo 2") {
+        Component(peer2_modcast,"Xogador 2 (Modcast)", "Contribúe á sincronización de mods. Negocia os hashes e actualiza o Sync Status Ledger", "", "")
+    }
+    Container_Boundary(node_n, "Nodo N") {
+        Component(peerN_modcast,"Xogador N (Modcast)", "Contribúe á sincronización de mods. Negocia os hashes e actualiza o Sync Status Ledger", "", "")
+    }
+
+    Rel(LeaderComponent, peer2_modcast, "Mostra lista de Hashes MD5", "HTTP")
+    Rel(peer2_modcast, LeaderComponent , "Mostra lista de Hashes MD5", "HTTP")
+    Rel(peer2_modcast ,peerN_modcast, "Mostra lista de Hashes MD5", "HTTP")
+    Rel(peerN_modcast, peer2_modcast, "Mostra lista de Hashes MD5", "HTTP")
+    Rel(LeaderComponent, peer2_modcast, "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+    Rel(peer2_modcast, LeaderComponent , "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+    Rel(peer2_modcast ,peerN_modcast, "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+    Rel(peerN_modcast, peer2_modcast, "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+}
+
+Rel(maker, leaderWorkerSystem, "Emprega")
+@enduml
