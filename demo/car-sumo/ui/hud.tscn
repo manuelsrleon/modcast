@@ -1,0 +1,75 @@
+[gd_scene load_steps=2 format=3 uid="uid://d1h2u3d4h5u6d"]
+
+[ext_resource type="Script" path="res://scripts/hud.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="SpeedPanel" type="PanelContainer" parent="."]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 200.0
+offset_bottom = 100.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="SpeedPanel"]
+layout_mode = 2
+
+[node name="SpeedLabel" type="Label" parent="SpeedPanel/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 48
+text = "0 km/h"
+horizontal_alignment = 1
+
+[node name="CarNameLabel" type="Label" parent="SpeedPanel/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Car: Race"
+horizontal_alignment = 1
+
+[node name="InstructionsPanel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -150.0
+offset_right = 200.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="InstructionsPanel"]
+layout_mode = 2
+
+[node name="TitleLabel" type="Label" parent="InstructionsPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Controls"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="InstructionsPanel/VBoxContainer"]
+layout_mode = 2
+
+[node name="AccelerateLabel" type="Label" parent="InstructionsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Accelerate: RT / W"
+horizontal_alignment = 1
+
+[node name="BrakeLabel" type="Label" parent="InstructionsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Brake/Reverse: LT / S"
+horizontal_alignment = 1
+
+[node name="SteerLabel" type="Label" parent="InstructionsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Steer: Left Stick / A,D"
+horizontal_alignment = 1
+
+[node name="PauseLabel" type="Label" parent="InstructionsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Pause: Start / ESC"
+horizontal_alignment = 1

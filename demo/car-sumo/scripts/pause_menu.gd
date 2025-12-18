@@ -49,6 +49,8 @@ func populate_car_list() -> void:
 	for car_name in car_names:
 		var button = Button.new()
 		button.text = car_name.capitalize().replace("_", " ")
+		button.custom_minimum_size = Vector2(0, 40)
+		button.add_theme_font_size_override("font_size", 16)
 		button.pressed.connect(_on_car_selected.bind(car_name))
 		car_list.add_child(button)
 		car_buttons[car_name] = button
@@ -81,6 +83,11 @@ func apply_car_selection(car_name: String, should_save: bool) -> void:
 
 		if should_save:
 			SaveManager.save_car_preference(car_name)
+		
+		# Update HUD with new car name
+		var hud = get_tree().get_first_node_in_group("hud")
+		if hud and hud.has_method("update_car_name"):
+			hud.update_car_name(car_name)
 	else:
 		push_error("Failed to load car: ", car_name)
 
@@ -89,8 +96,10 @@ func update_selection_indicator() -> void:
 		var button = car_buttons[car_name]
 		if car_name == current_selected_car:
 			button.text = "✓ " + car_name.capitalize().replace("_", " ")
+			button.add_theme_color_override("font_color", Color(0.4, 1, 0.5))
 		else:
 			button.text = car_name.capitalize().replace("_", " ")
+			button.add_theme_color_override("font_color", Color(1, 1, 1))
 
 func _on_resume_pressed() -> void:
 	toggle_pause()
