@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://788657bwejxh"
+path="res://.godot/imported/wheel-tractor-dark-front.obj-ba672648047676ab28e4ce2865dc250f.mesh"
+
+[deps]
+
+files=["res://.godot/imported/wheel-tractor-dark-front.obj-ba672648047676ab28e4ce2865dc250f.mesh"]
+
+source_file="res://cars/Models/OBJ format/wheel-tractor-dark-front.obj"
+dest_files=["res://.godot/imported/wheel-tractor-dark-front.obj-ba672648047676ab28e4ce2865dc250f.mesh", "res://.godot/imported/wheel-tractor-dark-front.obj-ba672648047676ab28e4ce2865dc250f.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false
