@@ -1,6 +1,7 @@
-[gd_scene load_steps=7 format=3 uid="uid://lmidt68j2mgx"]
+[gd_scene load_steps=8 format=3 uid="uid://lmidt68j2mgx"]
 
 [ext_resource type="Script" uid="uid://dvswki6evu22s" path="res://player.gd" id="1_ig7tw"]
+[ext_resource type="Script" uid="uid://bf583hyfnef24" path="res://main.gd" id="1_main"]
 [ext_resource type="ArrayMesh" uid="uid://d3wogq8rlv108" path="res://cars/Models/OBJ format/race.obj" id="2_h2yge"]
 [ext_resource type="PackedScene" uid="uid://cb7k8m2n3p4q5" path="res://ui/pause_menu.tscn" id="2_pause"]
 
@@ -16,7 +17,34 @@ height = 1.0
 [sub_resource type="BoxShape3D" id="BoxShape3D_1bvp3"]
 size = Vector3(0.775, 0.8375195, 2.6325636)
 
-[node name="Main" type="Node"]
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="SpawnPoints" type="Node3D" parent="."]
+
+[node name="Spawn1" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -5)
+
+[node name="Spawn2" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 1.5, -5)
+
+[node name="Spawn3" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 1.5, -5)
+
+[node name="Spawn4" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -10)
+
+[node name="Spawn5" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 1.5, -10)
+
+[node name="Spawn6" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 1.5, -10)
+
+[node name="Spawn7" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 5)
+
+[node name="Spawn8" type="Node3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 1.5, 5)
 
 [node name="Ground" type="StaticBody3D" parent="."]
 

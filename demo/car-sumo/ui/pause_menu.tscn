@@ -62,6 +62,92 @@ size_flags_vertical = 3
 [node name="HSeparator3" type="HSeparator" parent="ColorRect/PanelContainer/VBoxContainer"]
 layout_mode = 2
 
+[node name="MultiplayerLabel" type="Label" parent="ColorRect/PanelContainer/VBoxContainer"]
+layout_mode = 2
+text = "Multiplayer"
+horizontal_alignment = 1
+
+[node name="HSeparator4" type="HSeparator" parent="ColorRect/PanelContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="MultiplayerButtons" type="HBoxContainer" parent="ColorRect/PanelContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="HostButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer/MultiplayerButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Host Game"
+
+[node name="JoinButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer/MultiplayerButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Join Game"
+
+[node name="ConnectionPanel" type="VBoxContainer" parent="ColorRect/PanelContainer/VBoxContainer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="IPLabel" type="Label" parent="ColorRect/PanelContainer/VBoxContainer/ConnectionPanel"]
+layout_mode = 2
+text = "Enter Host IP:"
+horizontal_alignment = 1
+
+[node name="IPLineEdit" type="LineEdit" parent="ColorRect/PanelContainer/VBoxContainer/ConnectionPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "127.0.0.1"
+
+[node name="ConnectButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer/ConnectionPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Connect"
+
+[node name="LobbyPanel" type="VBoxContainer" parent="ColorRect/PanelContainer/VBoxContainer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="PlayersLabel" type="Label" parent="ColorRect/PanelContainer/VBoxContainer/LobbyPanel"]
+layout_mode = 2
+text = "Connected Players:"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="ColorRect/PanelContainer/VBoxContainer/LobbyPanel"]
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+
+[node name="PlayerList" type="VBoxContainer" parent="ColorRect/PanelContainer/VBoxContainer/LobbyPanel/ScrollContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AdminControls" type="VBoxContainer" parent="ColorRect/PanelContainer/VBoxContainer/LobbyPanel"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="StartGameButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer/LobbyPanel/AdminControls"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Start Game"
+
+[node name="DisconnectButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer/LobbyPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Disconnect"
+
+[node name="StatusLabel" type="Label" parent="ColorRect/PanelContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="HSeparator5" type="HSeparator" parent="ColorRect/PanelContainer/VBoxContainer"]
+layout_mode = 2
+
 [node name="ResumeButton" type="Button" parent="ColorRect/PanelContainer/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2

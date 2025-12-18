@@ -1,0 +1,38 @@
+@startUML ModeloC4
+!include <C4/C4_Component>
+
+title Diagrama de Contedor - Modcast
+
+
+
+System_Boundary(leaderWorkerSystem, "Modcast") {
+    Person(xogador_admin, "Admin", "Hostea partida")
+    Container_Boundary(node1_admin, "Nodo 1 - Admin") {
+        
+        Component(LeaderComponent,"Peer Modcast 1", "Inicializa a partida, invita a novos xogadores e contribúe á sincronización de elemento", "", "")
+    }
+    Rel(xogador_admin,LeaderComponent, "Hostea partida")
+
+    Container_Boundary(node2_admin, "Nodo 2") {
+        Component(peer2_modcast,"Peer Modcast 2", "Contribúe á sincronización de mods. Negocia os hashes e actualiza o Sync Status Ledger", "", "")
+    }
+    
+    Person(xogador_1, "Xogador 1", "Xoga e comparte mods")
+    Rel(xogador_1,peer2_modcast, "Xoga con cliente que integra")
+    Container_Boundary(node_n, "Nodo N") {
+        Component(peerN_modcast,"Peer Modcast N", "Contribúe á sincronización de mods. Negocia os hashes e actualiza o Sync Status Ledger", "", "")
+    }
+
+    Person(xogador_2, "Xogador 2", "Xoga e comparte mods")
+    Rel(xogador_2,peerN_modcast, "Xoga con cliente que integra")
+
+    Rel(LeaderComponent, peer2_modcast, "Mostra lista de Hashes MD5", "HTTP")
+    Rel(peer2_modcast, LeaderComponent , "Mostra lista de Hashes MD5", "HTTP")
+    Rel(peer2_modcast ,peerN_modcast, "Mostra lista de Hashes MD5", "HTTP")
+    Rel(peerN_modcast, peer2_modcast, "Mostra lista de Hashes MD5", "HTTP")
+    Rel(LeaderComponent, peer2_modcast, "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+    Rel(peer2_modcast, LeaderComponent , "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+    Rel(peer2_modcast ,peerN_modcast, "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+    Rel(peerN_modcast, peer2_modcast, "Transfiren arquivos faltantes e sincronizan o seu SSL", "HTTP")
+}
+@enduml

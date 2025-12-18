@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 SaveManager="*res://scripts/save_manager.gd"
 CarManager="*res://scripts/car_manager.gd"
+NetworkManager="*res://scripts/network_manager.gd"
 
 [input]
 

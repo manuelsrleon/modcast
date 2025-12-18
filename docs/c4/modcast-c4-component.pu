@@ -1,0 +1,16 @@
+@startUML ModeloC4
+!include <C4/C4_Component>
+
+title Diagrama de Compoñentes - Modcast
+
+Person(desarrollador, "Desarrollador", "Quiere integrar sincronización de mods en su videojuego")
+
+
+System(videojuego, "Videojuego", "Integra Modcast como dependencia")
+Rel(desarrollador,videojuego, "Programa")
+
+Component(component,"DemoComponent")    
+Component(component,"GameStateComponent")
+Component(component,"FileTransferComponent")
+@enduml
+
