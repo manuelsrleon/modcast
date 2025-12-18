@@ -8,7 +8,7 @@ In the advent of platform lock-ins, more resilient, decentralized and user-contr
 modcast tries to abstract that complexity by providing developers a module that will automatically sync game resources between clients.
 
 ## Why P2P? 
-After studying the architectural alternatives
+As it is said before, no other architecture provides the decentralization needed for a truly resilient and non-corporate dependent mod sharing platform.
 
 ## Main components (subject to change)
 
